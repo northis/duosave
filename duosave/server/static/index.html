@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Duosave</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <h1>🦉 Duosave</h1>
+    <nav class="nav">
+      <a href="/" class="active" data-i18n="nav_cards">Карточки</a>
+      <a href="/review" data-i18n="nav_review">Проверка</a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="lang">
+      <a href="#" data-lang="ru" class="active">RU</a>
+      <a href="#" data-lang="en">EN</a>
+    </div>
+    <button id="theme-btn" class="theme-btn" title="theme">🌙</button>
+  </header>
+
+  <div class="search-row">
+    <input id="search" class="search" type="search" data-i18n-ph="search_ph" placeholder="Поиск по оригиналу и переводу…" autocomplete="off">
+    <div class="chips" id="lang-chips">
+      <button class="chip active" data-value="" data-i18n="all">Все</button>
+      <button class="chip" data-value="pl">PL</button>
+      <button class="chip" data-value="es">ES</button>
+      <button class="chip" data-value="pt">PT</button>
+    </div>
+    <div class="chips" id="app-chips">
+      <button class="chip active" data-value="" data-i18n="all">Все</button>
+      <button class="chip" data-value="duolingo">Duolingo</button>
+      <button class="chip" data-value="drops">Drops</button>
+    </div>
+    <div class="chips" id="sort-chips">
+      <button class="chip active" data-value="new" data-i18n="sort_new">Сначала новые</button>
+      <button class="chip" data-value="old" data-i18n="sort_old">Сначала старые</button>
+    </div>
+  </div>
+
+  <div class="stats-line" id="stats-line"></div>
+  <section id="cards" class="cards"></section>
+  <div id="empty" class="empty" style="display:none" data-i18n="empty">Ничего не найдено</div>
+  <button id="more" class="more" style="display:none" data-i18n="more">Показать ещё</button>
+</div>
+
+<div id="modal-back" class="modal-back" style="display:none">
+  <div class="modal">
+    <button class="close" onclick="closeModal()">×</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>initIndex();</script>
+</body>
+</html>
