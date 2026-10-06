@@ -80,6 +80,11 @@ header.top .spacer { flex: 1; }
   border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
   padding: 7px 11px; cursor: pointer; font-size: 0.95rem; line-height: 1;
 }
+.build-badge {
+  color: var(--muted); font-size: 0.78rem; text-decoration: none; white-space: nowrap;
+  padding: 6px 10px; border-radius: 999px; border: 1px solid transparent;
+}
+.build-badge:hover { border-color: var(--border); color: var(--text); }
 .stats-line { color: var(--muted); font-size: 0.9rem; margin: 4px 2px 12px; min-height: 1.3em; }
 .stats-line.busy::after {
   content: ""; display: inline-block; width: 11px; height: 11px; margin-left: 8px;

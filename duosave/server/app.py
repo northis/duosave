@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from ..buildinfo import build_info
 from ..config import MEDIA_DIR, REPO, SOURCE_FOLDERS
 from ..db import (
     add_source,
@@ -158,3 +159,8 @@ def api_stats():
     finally:
         conn.close()
     return data
+
+
+@app.get("/api/version")
+def api_version() -> dict:
+    return build_info()

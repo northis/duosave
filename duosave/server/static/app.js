@@ -20,6 +20,7 @@ const I18N = {
     status_auto: "авто", status_review: "проверка", status_manual: "подтверждено",
     review_queue: "На проверке:", no_guess: "Пары не найдено — посмотрите скриншот",
     path: "Путь:",
+    build_title: "Duosave {v}, коммит {sha}", build_dirty: "локальные изменения",
   },
   en: {
     nav_cards: "Cards", nav_review: "Review",
@@ -39,6 +40,7 @@ const I18N = {
     status_auto: "auto", status_review: "review", status_manual: "verified",
     review_queue: "To review:", no_guess: "No pair found — check the screenshot",
     path: "Path:",
+    build_title: "Duosave {v}, commit {sha}", build_dirty: "local changes",
   },
 };
 let lang = localStorage.getItem("duosave_lang") || "ru";
@@ -55,6 +57,7 @@ document.querySelectorAll(".lang a").forEach((a) =>
     lang = a.dataset.lang;
     localStorage.setItem("duosave_lang", lang);
     applyI18n();
+    renderBuildInfo();
     if (document.getElementById("cards")) render(true);
     else if (document.getElementById("review-list")) loadReview(true);
   }));
@@ -75,6 +78,25 @@ function bindTheme() {
     localStorage.setItem("duosave_theme", theme);
     applyTheme();
   });
+}
+
+/* version + commit badge in the sticky header */
+let buildInfo = null;
+function renderBuildInfo() {
+  const el = document.getElementById("build-badge");
+  if (!el || !buildInfo) return;
+  const sha = buildInfo.short ? buildInfo.short + (buildInfo.dirty ? "*" : "") : "";
+  el.textContent = "v" + buildInfo.version + (sha ? " · " + sha : "");
+  el.title = t("build_title").replace("{v}", buildInfo.version).replace("{sha}", buildInfo.commit || "—")
+    + (buildInfo.commit_date ? " · " + String(buildInfo.commit_date).slice(0, 10) : "")
+    + (buildInfo.dirty ? " · " + t("build_dirty") : "");
+  if (buildInfo.commit_url) el.href = buildInfo.commit_url;
+  else el.removeAttribute("href");
+  el.hidden = false;
+}
+async function loadBuildInfo() {
+  try { buildInfo = await fetchJson("/api/version"); } catch (err) { return; }
+  renderBuildInfo();
 }
 
 function esc(s) {
@@ -229,6 +251,7 @@ function initIndex() {
   applyStateToUi();
   bindTheme();
   applyTheme();
+  loadBuildInfo();
   const input = document.getElementById("search");
   if (input) {
     input.addEventListener("input", () => {
@@ -367,6 +390,7 @@ async function loadReview(reset) {
 function initReviewPage() {
   bindTheme();
   applyTheme();
+  loadBuildInfo();
   const more = document.getElementById("more");
   if (more) more.addEventListener("click", () => { reviewPage += 1; loadReview(false); });
   applyI18n();

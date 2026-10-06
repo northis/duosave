@@ -7,6 +7,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
+from . import __version__
 from .config import DB_PATH
 
 
@@ -135,6 +136,7 @@ def cmd_agent_import(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="duosave", description="Duolingo/Drops cards database + site")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init", help="create the database").set_defaults(func=cmd_init)
