@@ -5,3 +5,4 @@ numpy
 Pillow>=11.1.0
 fastapi>=0.110.0
 uvicorn>=0.29.0
+fastembed>=0.8.1

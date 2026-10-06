@@ -8,7 +8,9 @@ venv/
 .vscode/
 pictures/
 data/
+data/models/
 exports/
 review_queue.jsonl
 screens/
 screens_raw/
+.sdd/

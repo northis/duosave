@@ -21,19 +21,43 @@ def cmd_init(_args) -> int:
 
 
 def cmd_sync(args) -> int:
+    from .semantic import SemanticUnavailable
     from .sync import sync
 
-    result = sync(
-        folders=args.folders,
-        limit=args.limit,
-        passes=args.passes,
-        retry=args.retry,
-        quiet=args.quiet,
-    )
+    try:
+        result = sync(
+            folders=args.folders,
+            limit=args.limit,
+            passes=args.passes,
+            retry=args.retry,
+            quiet=args.quiet,
+            index=args.index,
+        )
+    except SemanticUnavailable as exc:
+        print(f"semantic index unavailable: {exc.reason}")
+        return 2
     if not args.quiet:
         print(f"elapsed: {result.pop('elapsed')}s")
         for key, value in result.items():
             print(f"  {key}: {value}")
+    return 0
+
+
+def cmd_index(args) -> int:
+    from .db import connect, init_db
+    from .semantic import SemanticUnavailable, reindex
+
+    conn = connect()
+    try:
+        init_db(conn)
+        result = reindex(conn, full=args.full)
+    except SemanticUnavailable as exc:
+        print(f"semantic index unavailable: {exc.reason}")
+        return 2
+    finally:
+        conn.close()
+    for key, value in result.items():
+        print(f"  {key}: {value}")
     return 0
 
 
@@ -122,7 +146,12 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser.add_argument("--passes", type=int, default=2, help="OCR passes (1 or 2)")
     sync_parser.add_argument("--retry", action="store_true", help="re-process failed files")
     sync_parser.add_argument("--quiet", action="store_true")
+    sync_parser.add_argument("--index", action="store_true", help="embed cards after sync")
     sync_parser.set_defaults(func=cmd_sync)
+
+    index_parser = sub.add_parser("index", help="embed cards for semantic search (incremental)")
+    index_parser.add_argument("--full", action="store_true", help="re-embed every card")
+    index_parser.set_defaults(func=cmd_index)
 
     serve_parser = sub.add_parser("serve", help="run the local site")
     serve_parser.add_argument("--port", type=int, default=8765)

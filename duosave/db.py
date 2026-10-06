@@ -62,6 +62,16 @@ CREATE TABLE IF NOT EXISTS files (
     last_seen TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_files_status ON files(status);
+
+CREATE TABLE IF NOT EXISTS card_embeddings (
+    card_id INTEGER PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
+    model TEXT NOT NULL,
+    dim INTEGER NOT NULL,
+    vector BLOB NOT NULL,
+    text_hash TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_embeddings_model ON card_embeddings(model);
 """
 
 
@@ -69,9 +79,9 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def connect(path: Path = DB_PATH) -> sqlite3.Connection:
+def connect(path: Path | None = None) -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path or DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -232,6 +242,26 @@ def search_cards(conn: sqlite3.Connection, query: str = "", lang: str = "", app:
     return [dict(row) for row in rows], int(total)
 
 
+def get_cards_by_ids(conn: sqlite3.Connection, ids: list[int]) -> list[dict]:
+    if not ids:
+        return []
+    placeholders = ", ".join("?" for _ in ids)
+    time_expr = (
+        "(SELECT MAX(f.created_ts) FROM sources s JOIN files f ON f.path = s.path "
+        "WHERE s.card_id = c.id)"
+    )
+    rows = conn.execute(
+        f"""
+        SELECT c.*, {time_expr} AS card_time,
+               (SELECT COUNT(*) FROM sources s WHERE s.card_id = c.id) AS source_count
+        FROM cards c WHERE c.id IN ({placeholders})
+        """,
+        ids,
+    ).fetchall()
+    by_id = {int(row["id"]): dict(row) for row in rows}
+    return [by_id[card_id] for card_id in ids if card_id in by_id]
+
+
 def get_card(conn: sqlite3.Connection, card_id: int) -> dict | None:
     row = conn.execute(
         """
@@ -328,3 +358,57 @@ def card_rows_for_export(conn: sqlite3.Connection) -> list[dict]:
         """
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def upsert_embedding(
+    conn: sqlite3.Connection,
+    *,
+    card_id: int,
+    model: str,
+    dim: int,
+    vector: bytes,
+    text_hash: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO card_embeddings (card_id, model, dim, vector, text_hash, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(card_id) DO UPDATE SET
+            model = excluded.model,
+            dim = excluded.dim,
+            vector = excluded.vector,
+            text_hash = excluded.text_hash,
+            updated_at = excluded.updated_at
+        """,
+        (card_id, model, dim, vector, text_hash, now()),
+    )
+
+
+def load_embeddings(conn: sqlite3.Connection, model: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT card_id, model, dim, vector, text_hash
+        FROM card_embeddings
+        WHERE model = ?
+        ORDER BY card_id
+        """,
+        (model,),
+    ).fetchall()
+
+
+def delete_embeddings(conn: sqlite3.Connection, card_ids: list[int]) -> int:
+    if not card_ids:
+        return 0
+    placeholders = ", ".join("?" for _ in card_ids)
+    cursor = conn.execute(
+        f"DELETE FROM card_embeddings WHERE card_id IN ({placeholders})",
+        card_ids,
+    )
+    return int(cursor.rowcount)
+
+
+def embedding_index_stats(conn: sqlite3.Connection) -> tuple[int, str | None]:
+    row = conn.execute(
+        "SELECT COUNT(*), MAX(updated_at) FROM card_embeddings"
+    ).fetchone()
+    return int(row[0]), row[1]

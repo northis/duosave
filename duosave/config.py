@@ -29,6 +29,14 @@ LANGUAGE_NAMES = {"pl": "Polish", "es": "Spanish", "pt": "Portuguese", "unk": "U
 # Bump when recognition logic changes so cached results are re-computed.
 RECOGNIZER_VERSION = 1
 
+# Embedding constants for semantic search (see duosave/semantic.py).
+EMBEDDING_MODEL: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+EMBEDDING_DIM: int = 384
+EMBEDDING_VERSION: int = 1
+MODEL_CACHE_DIR: Path = DATA_DIR / "models"
+SEMANTIC_CANDIDATES: int = 200
+RRF_K: int = 60
+
 APP_CARD = "duolingo_card"
 APP_DUO = "duolingo_app"
 APP_DROPS = "drops"

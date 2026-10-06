@@ -7,6 +7,9 @@ const I18N = {
     search_ph: "Поиск по оригиналу и переводу…",
     all: "Все",
     sort_new: "Сначала новые", sort_old: "Сначала старые",
+    mode_text: "Текст", mode_hybrid: "Гибрид", mode_semantic: "Смысл",
+    sem_stale: "Семантический индекс отстаёт на {n} — запустите duosave index",
+    sem_unavailable: "Семантический поиск недоступен: {reason}",
     empty: "Ничего не найдено",
     more: "Показать ещё",
     loading: "Загрузка…",
@@ -23,6 +26,9 @@ const I18N = {
     search_ph: "Search by original and translation…",
     all: "All",
     sort_new: "Newest first", sort_old: "Oldest first",
+    mode_text: "Text", mode_hybrid: "Hybrid", mode_semantic: "Semantic",
+    sem_stale: "Semantic index is {n} cards behind — run duosave index",
+    sem_unavailable: "Semantic search unavailable: {reason}",
     empty: "Nothing found",
     more: "Show more",
     loading: "Loading…",
@@ -101,7 +107,7 @@ async function fetchJson(url) {
 }
 
 /* ------------------------------- search --------------------------------- */
-const state = { q: "", lang: "", app: "", sort: "new", page: 0, total: 0, loaded: 0, card: 0 };
+const state = { q: "", lang: "", app: "", sort: "new", mode: "hybrid", page: 0, total: 0, loaded: 0, card: 0 };
 let reqSeq = 0;
 let searchTimer = null;
 let openCardId = null;
@@ -112,6 +118,8 @@ function readUrlState() {
   state.lang = p.get("lang") || "";
   state.app = p.get("app") || "";
   state.sort = p.get("sort") === "old" ? "old" : "new";
+  const mode = p.get("mode");
+  state.mode = mode === "text" || mode === "semantic" ? mode : "hybrid";
   const page = parseInt(p.get("page") || "0", 10);
   state.page = Number.isFinite(page) && page > 0 ? page : 0;
   const card = parseInt(p.get("card") || "0", 10);
@@ -123,6 +131,7 @@ function syncUrl(mode) {
   if (state.lang) p.set("lang", state.lang);
   if (state.app) p.set("app", state.app);
   if (state.sort && state.sort !== "new") p.set("sort", state.sort);
+  if (state.mode && state.mode !== "hybrid") p.set("mode", state.mode);
   if (state.page > 0) p.set("page", String(state.page));
   if (openCardId) p.set("card", String(openCardId));
   const qs = p.toString();
@@ -133,7 +142,7 @@ function syncUrl(mode) {
 function applyStateToUi() {
   const input = document.getElementById("search");
   if (input) input.value = state.q;
-  const groups = [["lang-chips", state.lang], ["app-chips", state.app], ["sort-chips", state.sort]];
+  const groups = [["lang-chips", state.lang], ["app-chips", state.app], ["sort-chips", state.sort], ["mode-chips", state.mode]];
   for (const [id, value] of groups) {
     const wrap = document.getElementById(id);
     if (wrap) wrap.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", (c.dataset.value || "") === value));
@@ -156,7 +165,7 @@ function bindChips(id, key) {
 
 async function loadPage(page) {
   const params = new URLSearchParams({
-    q: state.q, lang: state.lang, app: state.app, page, limit: 60, sort: state.sort,
+    q: state.q, lang: state.lang, app: state.app, page, limit: 60, sort: state.sort, mode: state.mode,
   });
   const data = await fetchJson("/api/search?" + params);
   const wrap = document.getElementById("cards");
@@ -198,7 +207,13 @@ async function render(reset) {
     state.total = data.total;
     const more = document.getElementById("more");
     if (more) more.style.display = state.loaded > 0 && state.loaded < data.total ? "block" : "none";
-    setStatus(`${data.total} ${t("cards")}`, false);
+    let status = `${data.total} ${t("cards")}`;
+    const semantic = data.semantic || {};
+    if (semantic.stale > 0) status += ` · ${t("sem_stale").replace("{n}", semantic.stale)}`;
+    if (semantic.available === false && state.mode !== "text") {
+      status += ` · ${t("sem_unavailable").replace("{reason}", semantic.reason)}`;
+    }
+    setStatus(status, false);
     if (state.loaded === 0) show(document.getElementById("empty"));
   } catch (err) {
     if (seq !== reqSeq) return;
@@ -238,14 +253,15 @@ function initIndex() {
   bindChips("lang-chips", "lang");
   bindChips("app-chips", "app");
   bindChips("sort-chips", "sort");
+  bindChips("mode-chips", "mode");
   const more = document.getElementById("more");
   if (more) more.addEventListener("click", () => { state.page += 1; syncUrl("push"); render(false); });
   window.addEventListener("popstate", () => {
-    const prev = { q: state.q, lang: state.lang, app: state.app, sort: state.sort, page: state.page };
+    const prev = { q: state.q, lang: state.lang, app: state.app, sort: state.sort, mode: state.mode, page: state.page };
     readUrlState();
     applyStateToUi();
     if (prev.q !== state.q || prev.lang !== state.lang || prev.app !== state.app
-        || prev.sort !== state.sort || prev.page !== state.page) {
+        || prev.sort !== state.sort || prev.mode !== state.mode || prev.page !== state.page) {
       render(true);
     }
     if (state.card && state.card !== openCardId) showCard(state.card, false);

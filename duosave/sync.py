@@ -88,7 +88,7 @@ def store_recognition(conn, rel_path: str, path: Path, sha256: str, data: dict) 
 
 
 def sync(folders: list[str] | None = None, limit: int | None = None, passes: int = 2,
-         retry: bool = False, quiet: bool = False) -> dict:
+         retry: bool = False, quiet: bool = False, index: bool = False) -> dict:
     folders = folders or list(SOURCE_FOLDERS)
     conn = connect()
     init_db(conn)
@@ -145,6 +145,12 @@ def sync(folders: list[str] | None = None, limit: int | None = None, passes: int
     result = dict(stats)
     result["elapsed"] = round(elapsed, 1)
     result["total_found"] = len(tasks)
+    if index:
+        from .semantic import reindex
+
+        index_result = reindex(conn)
+        for key in ("added", "updated", "removed", "unchanged", "elapsed"):
+            result[f"index_{key}"] = index_result[key]
     if not quiet:
         print(f"sync done: {dict(stats)} in {elapsed:.0f}s")
     conn.close()

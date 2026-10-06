@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
@@ -14,18 +16,30 @@ from ..db import (
     add_source,
     connect,
     get_card,
+    init_db,
     review_files,
-    search_cards,
     set_file,
     stats,
     update_card,
     upsert_card,
 )
+from ..semantic import hybrid_search
 from ..text import fold_text
 
 STATIC = Path(__file__).resolve().parent / "static"
 
-app = FastAPI(title="Duosave")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    conn = connect()
+    try:
+        init_db(conn)
+    finally:
+        conn.close()
+    yield
+
+
+app = FastAPI(title="Duosave", lifespan=lifespan)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 # original screenshots, so the UI can link "source: screens/...png"
@@ -47,14 +61,14 @@ def review_page() -> FileResponse:
 
 @app.get("/api/search")
 def api_search(q: str = "", lang: str = "", app: str = "", page: int = 0, limit: int = 60,
-               sort: str = "new"):
+               sort: str = "new", mode: Literal["hybrid", "semantic", "text"] = "hybrid"):
     conn = connect()
     try:
-        items, total = search_cards(conn, query=q, lang=lang, app=app, limit=limit,
-                                    offset=page * limit, sort=sort)
+        items, total, meta = hybrid_search(conn, query=q, lang=lang, app=app, limit=limit,
+                                           offset=page * limit, sort=sort, mode=mode)
     finally:
         conn.close()
-    return {"total": total, "items": items}
+    return {"total": total, "items": items, "semantic": meta}
 
 
 @app.get("/api/cards/{card_id}")
