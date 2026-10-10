@@ -1,0 +1,20 @@
+# Runtime state and source images are mounted from the host, never baked into the image.
+data/
+pictures/
+screens/
+screens_raw/
+exports/
+review_queue.jsonl
+
+# Local development artifacts.
+.git/
+.gitignore
+.sdd/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.idea/
+.vscode/
+tests/

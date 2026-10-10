@@ -13,4 +13,5 @@ exports/
 review_queue.jsonl
 screens/
 screens_raw/
+.env
 .sdd/

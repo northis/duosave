@@ -1,0 +1,26 @@
+# Duosave: site + SQLite database + images.
+# All state lives on the host (./data, ./pictures, ./screens, ./screens_raw) and is
+# bind-mounted into the container, so the image can be rebuilt or removed freely.
+# Paths and the published port can be overridden in .env (see .env.example).
+services:
+  duosave:
+    build: .
+    image: duosave:latest
+    container_name: duosave
+    restart: unless-stopped
+    ports:
+      - "${DUOSAVE_PORT:-8765}:8765"
+    environment:
+      # listen on all interfaces so the published port works
+      DUOSAVE_HOST: 0.0.0.0
+      # optional: commit shown in the site header for builds without a git checkout
+      DUOSAVE_COMMIT: "${DUOSAVE_COMMIT:-}"
+      DUOSAVE_REPO_URL: "${DUOSAVE_REPO_URL:-}"
+    volumes:
+      # database (duosave.db + WAL), OCR cache, Drops crops, thumbnails, embedding model, wordlists
+      - "${DUOSAVE_DATA_DIR:-./data}:/app/data"
+      # source images: drop new files here, then run
+      #   docker compose exec duosave python -m duosave sync
+      - "${DUOSAVE_PICTURES_DIR:-./pictures}:/app/pictures"
+      - "${DUOSAVE_SCREENS_DIR:-./screens}:/app/screens"
+      - "${DUOSAVE_SCREENS_RAW_DIR:-./screens_raw}:/app/screens_raw"

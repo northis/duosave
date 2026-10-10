@@ -41,6 +41,8 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Duosave", lifespan=lifespan)
+# Drops crops appear after the first sync; create the folder so StaticFiles can mount it.
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 # original screenshots, so the UI can link "source: screens/...png"

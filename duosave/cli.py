@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import webbrowser
 from pathlib import Path
@@ -69,7 +70,7 @@ def cmd_serve(args) -> int:
 
     if args.open:
         webbrowser.open(f"http://127.0.0.1:{args.port}")
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
 
 
@@ -156,6 +157,8 @@ def build_parser() -> argparse.ArgumentParser:
     index_parser.set_defaults(func=cmd_index)
 
     serve_parser = sub.add_parser("serve", help="run the local site")
+    serve_parser.add_argument("--host", default=os.environ.get("DUOSAVE_HOST", "127.0.0.1"),
+                              help="bind address (default: 127.0.0.1, env DUOSAVE_HOST)")
     serve_parser.add_argument("--port", type=int, default=8765)
     serve_parser.add_argument("--open", action="store_true")
     serve_parser.set_defaults(func=cmd_serve)

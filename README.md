@@ -34,6 +34,36 @@ python -m duosave serve --open                    # http://127.0.0.1:8765
 
 Дымовой прогон: `python -m duosave sync --limit 10`.
 
+## Docker / docker compose
+
+```bash
+docker compose up -d --build                                   # сборка и запуск: http://localhost:8765
+docker compose exec duosave python -m duosave sync --folders screens pictures --quiet
+docker compose exec duosave python -m duosave index
+docker compose logs -f duosave                                 # логи
+docker compose down                                            # остановить (данные остаются на хосте)
+```
+
+База и картинки хранятся **на хосте**, а не в контейнере, поэтому образ можно
+пересобирать и удалять без потери данных:
+
+| На хосте | В контейнере | Что там лежит |
+|---|---|---|
+| `./data` | `/app/data` | `duosave.db` (+ WAL-файлы), кэш распознавания (`cache/`), обрезки Drops (`media/drops/`), миниатюры (`thumbs/`), модель эмбеддингов (`models/`, ~240 МБ) и словари (`wordlists/`) |
+| `./pictures` | `/app/pictures` | карточки Duolingo |
+| `./screens` | `/app/screens` | скриншоты приложений |
+| `./screens_raw` | `/app/screens_raw` | входящая свалка |
+
+- пути и порт переопределяются в `.env` (образец — `.env.example`), например
+  `DUOSAVE_DATA_DIR=/srv/duosave/data`, `DUOSAVE_PORT=9000`;
+- новые файлы кладутся в `pictures/`/`screens/` прямо на хосте (папки примонтированы,
+  пересборка не нужна), дальше — `docker compose exec duosave python -m duosave sync`;
+- первый `duosave index` скачивает модель эмбеддингов в `./data/models/` — интернет
+  нужен один раз, дальше всё офлайн;
+- на Linux файлы, созданные контейнером (БД, обрезки), принадлежат root: чтобы писать
+  в них из-под пользователя, добавьте сервису `user: "1000:1000"`;
+- обновление после `git pull`: `docker compose up -d --build`.
+
 ## Команды
 
 | Команда | Что делает |
@@ -41,7 +71,7 @@ python -m duosave serve --open                    # http://127.0.0.1:8765
 | `duosave init` | создать БД |
 | `duosave sync [--folders …] [--limit N] [--passes 1\|2] [--retry] [--quiet] [--index]` | инкрементальный импорт: sha256-кэш, повторно не распознаёт уже обработанные; `--index` — после импорта обновить эмбеддинги |
 | `duosave index [--full]` | эмбеддинги карточек для семантического поиска: инкрементально (только изменённые), `--full` — заново для всех |
-| `duosave serve [--port 8765] [--open]` | локальный сайт: поиск, фильтры, карточки, проверка |
+| `duosave serve [--host 127.0.0.1] [--port 8765] [--open]` | локальный сайт: поиск, фильтры, карточки, проверка |
 | `duosave stats` | статистика по языкам/источникам/статусам |
 | `duosave backfill-time` | дозаполнить время снимка (`created_ts`) для уже импортированных файлов |
 | `duosave export [--format csv\|json\|both]` | экспорт CSV по языкам / JSON |
