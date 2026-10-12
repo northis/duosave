@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -26,6 +26,8 @@ from ..db import (
 )
 from ..semantic import hybrid_search
 from ..text import fold_text
+from .admin import router as admin_router
+from .security import AdminError, admin_error_handler, is_local_admin
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -166,3 +168,15 @@ def api_stats():
 @app.get("/api/version")
 def api_version() -> dict:
     return build_info()
+
+
+@app.get("/api/session")
+def api_session(request: Request) -> JSONResponse:
+    """Tells the UI whether this listener is the local admin one (FR-009)."""
+    return JSONResponse(
+        {"local_admin": is_local_admin(request)}, headers={"Cache-Control": "no-store"}
+    )
+
+
+app.add_exception_handler(AdminError, admin_error_handler)
+app.include_router(admin_router)

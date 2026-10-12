@@ -1,0 +1,4 @@
+# Agent machine: only `python -m duosave patch scan|check|pack` (no database, no Docker).
+# Install with: python -m pip install -r requirements-agent.txt
+pydantic>=2
+Pillow>=11.1.0

@@ -13,6 +13,12 @@ DEFAULT_REPO_URL = "https://github.com/northis/duosave"
 SHORT_COMMIT_LEN = 7
 
 
+def _env(name: str) -> str | None:
+    """Environment value; empty strings are treated as absent (compose passes "")."""
+    value = os.environ.get(name, "").strip()
+    return value or None
+
+
 def _git(*args: str) -> str | None:
     """Run a git command in the repository; None if git or the command is unavailable."""
     try:
@@ -50,21 +56,21 @@ def build_info() -> dict:
     (or `GITHUB_SHA`) and `DUOSAVE_REPO_URL` override git discovery, which is useful
     for packaged builds without a checkout.
     """
-    commit = (
-        os.environ.get("DUOSAVE_COMMIT")
-        or os.environ.get("GITHUB_SHA")
-        or _git("rev-parse", "HEAD")
-    )
+    commit = _env("DUOSAVE_COMMIT") or _env("GITHUB_SHA") or _git("rev-parse", "HEAD")
     repo_url = normalize_repo_url(
-        os.environ.get("DUOSAVE_REPO_URL")
+        _env("DUOSAVE_REPO_URL")
         or _git("remote", "get-url", "origin")
         or DEFAULT_REPO_URL
     )
+    commit_date = None
+    if commit:
+        commit_date = _git("show", "-s", "--format=%cI", commit) or _env("DUOSAVE_COMMIT_DATE")
     return {
         "version": __version__,
         "commit": commit,
         "short": commit[:SHORT_COMMIT_LEN] if commit else None,
         "commit_url": f"{repo_url}/commit/{commit}" if commit else None,
-        "commit_date": _git("show", "-s", "--format=%cI", commit) if commit else None,
+        "commit_date": commit_date,
         "dirty": bool(_git("status", "--porcelain")) if commit else False,
+        "repo_url": repo_url,
     }

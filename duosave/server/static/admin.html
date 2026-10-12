@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Duosave — обслуживание</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <h1>🦉 Duosave</h1>
+    <nav class="nav">
+      <a href="/" data-i18n="nav_cards">Карточки</a>
+      <a href="/review" data-i18n="nav_review">Проверка</a>
+      <a href="/admin" class="active" data-i18n="nav_admin">Обслуживание</a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="lang">
+      <a href="#" data-lang="ru" class="active">RU</a>
+      <a href="#" data-lang="en">EN</a>
+    </div>
+    <button id="theme-btn" class="theme-btn" title="theme">🌙</button>
+    <span id="build-badge" class="build-badge" hidden>
+      <a id="build-version" target="_blank" rel="noopener"></a>
+      <a id="build-commit" target="_blank" rel="noopener" hidden></a>
+    </span>
+  </header>
+
+  <main id="admin">
+    <section class="panel" id="update-panel">
+      <h2 data-i18n="adm_update">Версия и обновление</h2>
+      <div id="update-body"></div>
+    </section>
+    <section class="panel" id="patch-panel">
+      <h2 data-i18n="adm_patches">Импорт патча</h2>
+      <div id="patch-body"></div>
+    </section>
+    <section class="panel" id="backup-panel">
+      <h2 data-i18n="adm_backup">Бэкап</h2>
+      <div id="backup-body"></div>
+    </section>
+  </main>
+</div>
+
+<script src="/static/app.js"></script>
+<script src="/static/admin.js"></script>
+<script>initAdminPage();</script>
+</body>
+</html>

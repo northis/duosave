@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .config import DROPS_MEDIA_DIR
+from . import config
 
 
 def crop_drops(image: Image.Image, margin: float = 0.02) -> Image.Image:
@@ -45,11 +45,12 @@ def crop_drops(image: Image.Image, margin: float = 0.02) -> Image.Image:
 
 def save_crop(image: Image.Image, sha256: str) -> str | None:
     """Save the Drops crop and return its path relative to the repo (or None)."""
-    DROPS_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    media_dir = config.DROPS_MEDIA_DIR
+    media_dir.mkdir(parents=True, exist_ok=True)
     name = f"{sha256[:16]}.jpg"
-    path = DROPS_MEDIA_DIR / name
+    path = media_dir / name
     if not path.exists():
         crop = crop_drops(image)
         crop.thumbnail((720, 720), Image.LANCZOS)
         crop.convert("RGB").save(path, quality=88)
-    return str(path.relative_to(Path(__file__).resolve().parents[1])).replace("\\", "/")
+    return path.relative_to(config.REPO).as_posix()

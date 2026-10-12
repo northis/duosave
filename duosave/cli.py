@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import argparse
 import os
+import socket
 import sys
 import webbrowser
 from pathlib import Path
 
 from . import __version__
-from .config import DB_PATH
+from .config import DB_PATH, PATCH_PART_MB
 
 
 def cmd_init(_args) -> int:
@@ -64,13 +65,116 @@ def cmd_index(args) -> int:
 
 
 def cmd_serve(args) -> int:
-    import uvicorn
-
+    from . import config
     from .server.app import app
 
+    if args.admin_port and args.admin_port == args.port:
+        print("error: --admin-port must differ from --port (use 0 to disable the admin listener)")
+        return 2
+    config.ADMIN_PORT = args.admin_port
+    public = (args.host, args.port)
+    admin = (args.admin_host, args.admin_port) if args.admin_port else None
     if args.open:
-        webbrowser.open(f"http://127.0.0.1:{args.port}")
-    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+        host, port = admin or public
+        webbrowser.open(f"http://{host}:{port}")
+    _run_servers(app, public, admin)
+    return 0
+
+
+def _bind(host: str, port: int) -> socket.socket:
+    """Bind a listening socket ourselves so one uvicorn server can serve two ports."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((host, port))
+    sock.listen(128)
+    return sock
+
+
+def _run_servers(app, public: tuple[str, int], admin: tuple[str, int] | None) -> None:
+    """Serve the app on the public socket and, when enabled, on the admin socket.
+
+    One process, one lifespan, one signal handler: the admin listener only marks
+    requests as local (`scope["server"]` port), it does not duplicate state.
+    """
+    import uvicorn
+
+    sockets = [_bind(*public)]
+    if admin is not None:
+        sockets.append(_bind(*admin))
+    bound = [sock.getsockname()[:2] for sock in sockets]
+    message = f"duosave: http://{bound[0][0]}:{bound[0][1]}"
+    if admin is not None:
+        message += f" (admin: http://{bound[1][0]}:{bound[1][1]})"
+    print(message, flush=True)
+    try:
+        uvicorn.Server(uvicorn.Config(app, log_level="warning")).run(sockets=sockets)
+    finally:
+        for sock in sockets:
+            sock.close()
+
+
+def cmd_snapshot(args) -> int:
+    from .backup import snapshot
+
+    print(snapshot(args.label))
+    return 0
+
+
+def _patch_outbox(arg: str | None) -> Path:
+    from . import config
+
+    return Path(arg) if arg else config.OUTBOX_DIR
+
+
+def _print_patch_errors(exc) -> int:
+    for error in exc.errors:
+        print(error)
+    return 1
+
+
+def cmd_patch_scan(args) -> int:
+    from . import patch_build, patchfmt
+
+    try:
+        result = patch_build.scan(
+            patch_build.resolve_inbox(args.inbox),
+            _patch_outbox(args.outbox),
+            known=Path(args.known) if args.known else None,
+            slice_size=args.slice_size,
+        )
+    except patchfmt.PatchError as exc:
+        return _print_patch_errors(exc)
+    print(f"new: {result.new}, known: {result.known}, processed: {result.processed}, "
+          f"duplicates: {result.duplicates}, total: {result.total}")
+    return 0
+
+
+def cmd_patch_check(args) -> int:
+    from . import patch_build, patchfmt
+
+    try:
+        result = patch_build.check(_patch_outbox(args.outbox))
+    except patchfmt.PatchError as exc:
+        return _print_patch_errors(exc)
+    for error in result.errors:
+        print(error)
+    if result.exit_code == 2:
+        print(f"pending: {result.pending} draft(s) without an action")
+    elif result.exit_code == 0:
+        print(f"ready: {result.done} record(s)")
+    return result.exit_code
+
+
+def cmd_patch_pack(args) -> int:
+    from . import patch_build, patchfmt
+
+    try:
+        written = patch_build.pack(_patch_outbox(args.outbox), max_mb=args.max_mb,
+                                   agent=args.agent)
+    except patchfmt.PatchError as exc:
+        return _print_patch_errors(exc)
+    for path in written:
+        print(path)
     return 0
 
 
@@ -160,10 +264,43 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--host", default=os.environ.get("DUOSAVE_HOST", "127.0.0.1"),
                               help="bind address (default: 127.0.0.1, env DUOSAVE_HOST)")
     serve_parser.add_argument("--port", type=int, default=8765)
+    serve_parser.add_argument("--admin-host",
+                              default=os.environ.get("DUOSAVE_ADMIN_HOST", "127.0.0.1"),
+                              help="admin bind address (default: 127.0.0.1, env DUOSAVE_ADMIN_HOST)")
+    serve_parser.add_argument("--admin-port", type=int,
+                              default=int(os.environ.get("DUOSAVE_ADMIN_PORT") or 8766),
+                              help="admin port, 0 disables the admin listener "
+                                   "(default: 8766, env DUOSAVE_ADMIN_PORT)")
     serve_parser.add_argument("--open", action="store_true")
     serve_parser.set_defaults(func=cmd_serve)
 
     sub.add_parser("stats", help="show database stats").set_defaults(func=cmd_stats)
+
+    snapshot_parser = sub.add_parser("snapshot", help="consistent DB snapshot into data/backups")
+    snapshot_parser.add_argument("--label", default="manual")
+    snapshot_parser.set_defaults(func=cmd_snapshot)
+
+    patch_parser = sub.add_parser("patch", help="agent-side patch tooling (no database needed)")
+    patch_sub = patch_parser.add_subparsers(dest="patch_command", required=True)
+
+    scan_parser = patch_sub.add_parser("scan", help="create drafts for new inbox images")
+    scan_parser.add_argument("--inbox",
+                             help="image folder (default: DUOSAVE_INBOX, then <repo>/inbox)")
+    scan_parser.add_argument("--known",
+                             help="known-hashes file (default: outbox/known-hashes.txt)")
+    scan_parser.add_argument("--slice-size", type=int, default=20)
+    scan_parser.add_argument("--outbox", help="working folder (default: <repo>/outbox)")
+    scan_parser.set_defaults(func=cmd_patch_scan)
+
+    check_parser = patch_sub.add_parser("check", help="validate drafts: 0 ok, 1 errors, 2 pending")
+    check_parser.add_argument("--outbox")
+    check_parser.set_defaults(func=cmd_patch_check)
+
+    pack_parser = patch_sub.add_parser("pack", help="pack filled drafts into patch archives")
+    pack_parser.add_argument("--max-mb", type=int, default=PATCH_PART_MB)
+    pack_parser.add_argument("--agent", help="who recognized the images, e.g. 'opencode · model'")
+    pack_parser.add_argument("--outbox")
+    pack_parser.set_defaults(func=cmd_patch_pack)
 
     sub.add_parser("backfill-time", help="fill capture time (created_ts) from names/files for existing files"
                    ).set_defaults(func=cmd_backfill_time)

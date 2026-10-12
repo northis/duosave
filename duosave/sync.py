@@ -22,6 +22,20 @@ def file_sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _same_mtime(existing, stat) -> bool:
+    """`files.mtime` is REAL while `st_mtime_ns` (~1.8e18) exceeds 2**53.
+
+    The stored value is the nearest double, so compare in that domain on both sides;
+    otherwise the "skip unchanged" path never matches and files are recognized again.
+    """
+    return existing["mtime"] == float(stat.st_mtime_ns)
+
+
+def _unchanged(existing, stat) -> bool:
+    """True when the file row matches the file on disk (size and mtime)."""
+    return existing["size"] == stat.st_size and _same_mtime(existing, stat)
+
+
 def load_cache(sha256: str) -> dict | None:
     path = CACHE_DIR / f"{sha256}.json"
     if not path.exists():
@@ -112,10 +126,10 @@ def sync(folders: list[str] | None = None, limit: int | None = None, passes: int
             "SELECT sha256, mtime, size, status FROM files WHERE path = ?", (rel_path,)
         ).fetchone()
         if existing is not None and not retry:
-            if existing["mtime"] == stat.st_mtime_ns and existing["size"] == stat.st_size:
+            if _unchanged(existing, stat):
                 stats["skipped_unchanged"] += 1
                 continue
-            if existing["status"] == "reviewed" and existing["mtime"] == stat.st_mtime_ns:
+            if existing["status"] == "reviewed" and _same_mtime(existing, stat):
                 stats["skipped_reviewed"] += 1
                 continue
         if limit is not None and processed >= limit:

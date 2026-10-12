@@ -23,10 +23,23 @@ RUN python -m pip install --upgrade pip \
 
 COPY . .
 
+# Build metadata: declared after the dependency layer so a new commit does not invalidate
+# the pip layer. The updater passes these as --build-arg (see duosave/updater.py).
+ARG DUOSAVE_COMMIT=""
+ARG DUOSAVE_COMMIT_DATE=""
+ARG DUOSAVE_VERSION=""
+ARG DUOSAVE_CREATED=""
+ENV DUOSAVE_COMMIT=${DUOSAVE_COMMIT} DUOSAVE_COMMIT_DATE=${DUOSAVE_COMMIT_DATE}
+LABEL org.opencontainers.image.source="https://github.com/northis/duosave" \
+      org.opencontainers.image.revision="${DUOSAVE_COMMIT}" \
+      org.opencontainers.image.version="${DUOSAVE_VERSION}" \
+      org.opencontainers.image.created="${DUOSAVE_CREATED}"
+
 # Mount points used by docker-compose.yml: data/ (database, cache, crops, model) and image folders.
 RUN mkdir -p data pictures screens screens_raw
 
-EXPOSE 8765
+# 8765 - site; 8766 - maintenance (published on the local network only).
+EXPOSE 8765 8766
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/version', timeout=3)"

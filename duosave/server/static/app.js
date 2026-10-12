@@ -3,7 +3,7 @@
 
 const I18N = {
   ru: {
-    nav_cards: "Карточки", nav_review: "Проверка",
+    nav_cards: "Карточки", nav_review: "Проверка", nav_admin: "Обслуживание",
     search_ph: "Поиск по оригиналу и переводу…",
     all: "Все",
     sort_new: "Сначала новые", sort_old: "Сначала старые",
@@ -23,7 +23,7 @@ const I18N = {
     build_title: "Duosave {v}, коммит {sha}", build_dirty: "локальные изменения",
   },
   en: {
-    nav_cards: "Cards", nav_review: "Review",
+    nav_cards: "Cards", nav_review: "Review", nav_admin: "Maintenance",
     search_ph: "Search by original and translation…",
     all: "All",
     sort_new: "Newest first", sort_old: "Oldest first",
@@ -60,6 +60,7 @@ document.querySelectorAll(".lang a").forEach((a) =>
     renderBuildInfo();
     if (document.getElementById("cards")) render(true);
     else if (document.getElementById("review-list")) loadReview(true);
+    else if (document.getElementById("admin") && typeof renderAdmin === "function") renderAdmin();
   }));
 
 /* theme */
@@ -80,23 +81,45 @@ function bindTheme() {
   });
 }
 
-/* version + commit badge in the sticky header */
+/* version + commit badge in the sticky header (two links: repo and commit) */
 let buildInfo = null;
 function renderBuildInfo() {
-  const el = document.getElementById("build-badge");
-  if (!el || !buildInfo) return;
-  const sha = buildInfo.short ? buildInfo.short + (buildInfo.dirty ? "*" : "") : "";
-  el.textContent = "v" + buildInfo.version + (sha ? " · " + sha : "");
-  el.title = t("build_title").replace("{v}", buildInfo.version).replace("{sha}", buildInfo.commit || "—")
+  const badge = document.getElementById("build-badge");
+  if (!badge || !buildInfo) return;
+  const version = document.getElementById("build-version");
+  const commit = document.getElementById("build-commit");
+  const title = t("build_title").replace("{v}", buildInfo.version).replace("{sha}", buildInfo.commit || "—")
     + (buildInfo.commit_date ? " · " + String(buildInfo.commit_date).slice(0, 10) : "")
     + (buildInfo.dirty ? " · " + t("build_dirty") : "");
-  if (buildInfo.commit_url) el.href = buildInfo.commit_url;
-  else el.removeAttribute("href");
-  el.hidden = false;
+  if (version) {
+    version.textContent = "v" + buildInfo.version;
+    version.title = title;
+    if (buildInfo.repo_url) version.href = buildInfo.repo_url;
+  }
+  if (commit) {
+    if (buildInfo.short) {
+      commit.textContent = "· " + buildInfo.short + (buildInfo.dirty ? "*" : "");
+      commit.href = buildInfo.commit_url;
+      commit.title = title;
+      commit.hidden = false;
+    } else {
+      commit.hidden = true;
+    }
+  }
+  badge.hidden = false;
 }
 async function loadBuildInfo() {
   try { buildInfo = await fetchJson("/api/version"); } catch (err) { return; }
   renderBuildInfo();
+}
+
+/* The maintenance link exists only when the page is open on the local admin listener. */
+async function loadSession() {
+  try {
+    const session = await fetchJson("/api/session");
+    const link = document.getElementById("nav-admin");
+    if (link && session.local_admin) link.hidden = false;
+  } catch (err) { /* no admin on this listener */ }
 }
 
 function esc(s) {
@@ -252,6 +275,7 @@ function initIndex() {
   bindTheme();
   applyTheme();
   loadBuildInfo();
+  loadSession();
   const input = document.getElementById("search");
   if (input) {
     input.addEventListener("input", () => {
@@ -391,6 +415,7 @@ function initReviewPage() {
   bindTheme();
   applyTheme();
   loadBuildInfo();
+  loadSession();
   const more = document.getElementById("more");
   if (more) more.addEventListener("click", () => { reviewPage += 1; loadReview(false); });
   applyI18n();

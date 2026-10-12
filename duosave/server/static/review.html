@@ -13,6 +13,7 @@
     <nav class="nav">
       <a href="/" data-i18n="nav_cards">Карточки</a>
       <a href="/review" class="active" data-i18n="nav_review">Проверка</a>
+      <a href="/admin" id="nav-admin" data-i18n="nav_admin" hidden>Обслуживание</a>
     </nav>
     <div class="spacer"></div>
     <div class="lang">
@@ -20,7 +21,10 @@
       <a href="#" data-lang="en">EN</a>
     </div>
     <button id="theme-btn" class="theme-btn" title="theme">🌙</button>
-    <a id="build-badge" class="build-badge" href="#" target="_blank" rel="noopener" hidden></a>
+    <span id="build-badge" class="build-badge" hidden>
+      <a id="build-version" target="_blank" rel="noopener"></a>
+      <a id="build-commit" target="_blank" rel="noopener" hidden></a>
+    </span>
   </header>
 
   <div class="stats-line" id="stats-line"></div>

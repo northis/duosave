@@ -5,10 +5,19 @@ screens/
 screens_raw/
 exports/
 review_queue.jsonl
+inbox/
+outbox/
+
+# Host-side tooling and agent docs: not needed inside the container.
+deploy/
+.agents/
+AGENTS.md
+requirements-agent.txt
 
 # Local development artifacts.
 .git/
 .gitignore
+.gitattributes
 .sdd/
 .pytest_cache/
 __pycache__/

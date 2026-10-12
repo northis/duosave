@@ -19,8 +19,8 @@ def clear_build_info_cache():
     buildinfo.build_info.cache_clear()
 
 
-def test_version_is_2_1_0() -> None:
-    assert __version__ == "2.1.0"
+def test_version_is_2_2_0() -> None:
+    assert __version__ == "2.2.0"
 
 
 @pytest.mark.parametrize(
@@ -73,7 +73,39 @@ def test_without_git_only_version_is_known(monkeypatch: pytest.MonkeyPatch) -> N
         "commit_url": None,
         "commit_date": None,
         "dirty": False,
+        "repo_url": "https://github.com/northis/duosave",
     }
+
+
+def test_baked_commit_date_used_without_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(buildinfo, "_git", lambda *args: None)
+    monkeypatch.setenv("DUOSAVE_COMMIT", "abc1234567890")
+    monkeypatch.setenv("DUOSAVE_COMMIT_DATE", "2026-10-12T10:00:00+03:00")
+
+    info = buildinfo.build_info()
+
+    assert info["commit_date"] == "2026-10-12T10:00:00+03:00"
+    assert info["dirty"] is False
+
+
+def test_empty_env_values_are_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(buildinfo, "_git", lambda *args: None)
+    monkeypatch.setenv("DUOSAVE_COMMIT", "")
+    monkeypatch.setenv("GITHUB_SHA", "cafe")
+    monkeypatch.setenv("DUOSAVE_REPO_URL", "")
+    monkeypatch.delenv("DUOSAVE_COMMIT_DATE", raising=False)
+
+    info = buildinfo.build_info()
+
+    assert info["commit"] == "cafe"
+    assert info["repo_url"] == "https://github.com/northis/duosave"
+
+
+def test_repo_url_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(buildinfo, "_git", lambda *args: None)
+    monkeypatch.setenv("DUOSAVE_REPO_URL", "git@github.com:me/fork.git")
+
+    assert buildinfo.build_info()["repo_url"] == "https://github.com/me/fork"
 
 
 def test_api_version_endpoint(tmp_db: sqlite3.Connection) -> None:
@@ -83,7 +115,10 @@ def test_api_version_endpoint(tmp_db: sqlite3.Connection) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["version"] == __version__
-    assert set(data) == {"version", "commit", "short", "commit_url", "commit_date", "dirty"}
+    assert set(data) == {
+        "version", "commit", "short", "commit_url", "commit_date", "dirty", "repo_url",
+    }
+    assert data["repo_url"] == "https://github.com/northis/duosave"
 
 
 def test_cli_version_flag(capsys: pytest.CaptureFixture[str]) -> None:

@@ -72,6 +72,16 @@ CREATE TABLE IF NOT EXISTS card_embeddings (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_embeddings_model ON card_embeddings(model);
+
+CREATE TABLE IF NOT EXISTS patches (
+    patch_id TEXT PRIMARY KEY,
+    archive_sha256 TEXT NOT NULL,
+    format_version INTEGER NOT NULL,
+    generator TEXT NOT NULL,
+    report TEXT NOT NULL,
+    applied_by TEXT,
+    applied_at TEXT NOT NULL
+);
 """
 
 
@@ -412,3 +422,61 @@ def embedding_index_stats(conn: sqlite3.Connection) -> tuple[int, str | None]:
         "SELECT COUNT(*), MAX(updated_at) FROM card_embeddings"
     ).fetchone()
     return int(row[0]), row[1]
+
+
+def file_by_sha(conn: sqlite3.Connection, sha256: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM files WHERE sha256 = ? LIMIT 1", (sha256,)).fetchone()
+
+
+def file_by_path(conn: sqlite3.Connection, path: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM files WHERE path = ?", (path,)).fetchone()
+
+
+def card_by_key(conn: sqlite3.Connection, language: str, original: str,
+                translation: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM cards WHERE language = ? AND original = ? AND translation = ?",
+        (language, original, translation),
+    ).fetchone()
+
+
+def all_file_hashes(conn: sqlite3.Connection) -> list[str]:
+    """Unique sha256 of every file row (any status), sorted — known-hashes list."""
+    rows = conn.execute(
+        "SELECT DISTINCT sha256 FROM files WHERE sha256 != '' ORDER BY sha256"
+    ).fetchall()
+    return [row["sha256"] for row in rows]
+
+
+def insert_patch(conn: sqlite3.Connection, *, patch_id: str, archive_sha256: str,
+                 format_version: int, generator: dict, report: dict,
+                 applied_by: str | None) -> None:
+    conn.execute(
+        """
+        INSERT INTO patches (patch_id, archive_sha256, format_version, generator, report,
+                             applied_by, applied_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (patch_id, archive_sha256, format_version,
+         json.dumps(generator, ensure_ascii=False), json.dumps(report, ensure_ascii=False),
+         applied_by, now()),
+    )
+
+
+def _patch_row(row: sqlite3.Row) -> dict:
+    patch = dict(row)
+    patch["generator"] = json.loads(patch["generator"] or "{}")
+    patch["report"] = json.loads(patch["report"] or "{}")
+    return patch
+
+
+def get_patch(conn: sqlite3.Connection, patch_id: str) -> dict | None:
+    row = conn.execute("SELECT * FROM patches WHERE patch_id = ?", (patch_id,)).fetchone()
+    return _patch_row(row) if row is not None else None
+
+
+def list_patches(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:
+    rows = conn.execute(
+        "SELECT * FROM patches ORDER BY applied_at DESC, patch_id DESC LIMIT ?", (limit,)
+    ).fetchall()
+    return [_patch_row(row) for row in rows]

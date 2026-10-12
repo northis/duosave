@@ -13,5 +13,7 @@ exports/
 review_queue.jsonl
 screens/
 screens_raw/
+inbox/
+outbox/
 .env
 .sdd/

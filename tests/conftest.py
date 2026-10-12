@@ -6,9 +6,11 @@ import hashlib
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from fastapi.testclient import TestClient
 
 from duosave import db
 from duosave.config import EMBEDDING_DIM
@@ -73,3 +75,58 @@ def reset_semantic_caches() -> None:
     from duosave import semantic
 
     semantic.reset_caches()
+
+
+@pytest.fixture
+def tmp_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[SimpleNamespace]:
+    """Temporary repository tree (pictures/, screens/, data/*) with an initialized DB.
+
+    Paths are patched on the `config` module, so modules that read `config.X` at
+    call time follow the fixture; `db` keeps its own copies of DB_PATH/DATA_DIR.
+    """
+    from duosave import config
+
+    root = tmp_path / "repo"
+    data = root / "data"
+    pictures = root / "pictures"
+    screens = root / "screens"
+    (data / "media" / "drops").mkdir(parents=True)
+    (data / "wordlists").mkdir(parents=True)
+    pictures.mkdir()
+    screens.mkdir()
+    monkeypatch.setattr(config, "REPO", root)
+    monkeypatch.setattr(config, "DATA_DIR", data)
+    monkeypatch.setattr(config, "MEDIA_DIR", data / "media")
+    monkeypatch.setattr(config, "DROPS_MEDIA_DIR", data / "media" / "drops")
+    monkeypatch.setattr(config, "PATCHES_DIR", data / "patches")
+    monkeypatch.setattr(config, "BACKUPS_DIR", data / "backups")
+    monkeypatch.setattr(config, "CONTROL_DIR", data / "control")
+    monkeypatch.setattr(config, "INBOX_DIR", root / "inbox")
+    monkeypatch.setattr(config, "OUTBOX_DIR", root / "outbox")
+    monkeypatch.setattr(db, "DB_PATH", data / "duosave.db")
+    monkeypatch.setattr(db, "DATA_DIR", data)
+    conn = db.connect()
+    db.init_db(conn)
+    try:
+        yield SimpleNamespace(
+            root=root, data=data, pictures=pictures, screens=screens, conn=conn
+        )
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def client() -> TestClient:
+    """Public listener: TestClient's default scope server is ("testserver", 80)."""
+    from duosave.server.app import app
+
+    return TestClient(app)
+
+
+@pytest.fixture
+def admin_client() -> TestClient:
+    """Admin listener: base_url puts the admin port into scope["server"]."""
+    from duosave import config
+    from duosave.server.app import app
+
+    return TestClient(app, base_url=f"http://127.0.0.1:{config.ADMIN_PORT}")
