@@ -30,6 +30,7 @@ from .admin import router as admin_router
 from .security import AdminError, admin_error_handler, is_local_admin
 
 STATIC = Path(__file__).resolve().parent / "static"
+MANIFEST = STATIC / "manifest.webmanifest"
 
 
 @asynccontextmanager
@@ -69,6 +70,14 @@ def review_page() -> FileResponse:
 @app.get("/favicon.ico")
 def favicon() -> RedirectResponse:
     return RedirectResponse("/static/favicon.svg")
+
+
+# Web app manifest: the site installed as an app (icon, splash, standalone window). Served by
+# an explicit route because StaticFiles takes the type from `mimetypes`, and `.webmanifest` is
+# missing from some Linux tables — Chrome ignores a manifest served as text/plain.
+@app.get("/manifest.webmanifest")
+def manifest() -> FileResponse:
+    return FileResponse(MANIFEST, media_type="application/manifest+json")
 
 
 @app.get("/api/search")

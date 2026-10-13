@@ -11,6 +11,7 @@ review queue and a maintenance page (`/admin`) for patches and backups.
 | `duosave/` | pipeline and CLI (`sync`, `index`, `serve`, `snapshot`, `patch …`) |
 | `duosave/server/` | FastAPI app, admin router, security guards, static UI |
 | `tests/` | pytest suite (offline: no Docker, no network, no real models) |
+| `tools/` | scripts run by hand whose output is committed (`make_icons.py` → `duosave/server/static/icons/`) |
 | `deploy/` | host-side update script (`windows/update.ps1`: git pull + docker build + restart) |
 | `.agents/skills/` | agent skills (table below) |
 | `.sdd/specs/` | specifications and implementation plans (local, git-ignored) |

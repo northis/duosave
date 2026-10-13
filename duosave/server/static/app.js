@@ -64,12 +64,15 @@ document.querySelectorAll(".lang a").forEach((a) =>
   }));
 
 /* theme */
+const THEME_COLORS = { light: "#f6f1e8", dark: "#16171b" }; /* style.css --bg, and the manifest theme_color */
 let theme = localStorage.getItem("duosave_theme")
   || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 function applyTheme() {
   document.documentElement.dataset.theme = theme;
   const btn = document.getElementById("theme-btn");
   if (btn) btn.textContent = theme === "dark" ? "☀️" : "🌙";
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = THEME_COLORS[theme] || THEME_COLORS.light;
 }
 function bindTheme() {
   const btn = document.getElementById("theme-btn");
