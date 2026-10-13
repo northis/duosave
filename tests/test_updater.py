@@ -155,6 +155,18 @@ def test_check_job_records_fetch_error(tmp_path: Path) -> None:
     assert _status(runner)["repo"]["fetch_error"] == "no network"
 
 
+def test_deployed_commit_comes_from_the_container_without_a_label(tmp_path: Path) -> None:
+    """A manually built image has no revision label: the container reports its own commit."""
+    scenario = _check_scenario(deployed="|running|duosave:latest")
+    scenario.append((("docker", "exec", "duosave", "python", "-c"), Completed(0, NEW)))
+    runner = _runner(tmp_path, scenario)
+    runner.startup()
+
+    runner.run_check()
+
+    assert _status(runner)["deployed"]["commit"] == NEW
+
+
 # ------------------------------------------------------------------- refusals
 
 

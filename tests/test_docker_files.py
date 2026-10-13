@@ -58,5 +58,15 @@ def test_dockerignore_excludes_agent_and_deploy_files() -> None:
         assert entry in dockerignore
 
 
+def test_dockerignore_sends_only_git_head_and_refs() -> None:
+    """Without DUOSAVE_COMMIT the builder stamps the commit from the checkout's HEAD."""
+    dockerignore = (REPO / ".dockerignore").read_text(encoding="utf-8")
+
+    assert ".git/*" in dockerignore
+    for kept in (".git/HEAD", ".git/packed-refs", ".git/refs/"):
+        assert f"!{kept}" in dockerignore
+    assert ".git/objects" not in dockerignore  # history is never sent to the builder
+
+
 def test_gitattributes_pins_ps1_line_endings() -> None:
     assert "*.ps1 text eol=crlf" in (REPO / ".gitattributes").read_text(encoding="utf-8")

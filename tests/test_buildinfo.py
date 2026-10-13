@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -60,7 +61,75 @@ def test_github_sha_used_as_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     assert buildinfo.build_info()["commit"] == "deadbeefcafe"
 
 
-def test_without_git_only_version_is_known(monkeypatch: pytest.MonkeyPatch) -> None:
+COMMIT = "9c96590477f7437519264fce8aeb3f298b985961"
+
+
+def _git_dir_with_head(tmp_path: Path, head: str) -> Path:
+    """Git directory like the trimmed copy baked into the image: HEAD and refs, no objects."""
+    directory = tmp_path / ".git"
+    (directory / "refs" / "heads").mkdir(parents=True)
+    (directory / "HEAD").write_text(head, encoding="utf-8")
+    return directory
+
+
+def test_head_commit_from_a_loose_ref(tmp_path: Path) -> None:
+    directory = _git_dir_with_head(tmp_path, "ref: refs/heads/master\n")
+    (directory / "refs" / "heads" / "master").write_text(f"{COMMIT}\n", encoding="utf-8")
+
+    assert buildinfo.head_commit(directory) == COMMIT
+
+
+def test_head_commit_from_packed_refs(tmp_path: Path) -> None:
+    directory = _git_dir_with_head(tmp_path, "ref: refs/heads/master\n")
+    (directory / "packed-refs").write_text(
+        "# pack-refs with: peeled fully-peeled sorted\n"
+        f"{'b' * 40} refs/remotes/origin/master\n"
+        f"{COMMIT} refs/heads/master\n",
+        encoding="utf-8",
+    )
+
+    assert buildinfo.head_commit(directory) == COMMIT
+
+
+def test_head_commit_on_a_detached_head(tmp_path: Path) -> None:
+    assert buildinfo.head_commit(_git_dir_with_head(tmp_path, COMMIT)) == COMMIT
+
+
+def test_head_commit_follows_a_worktree_pointer(tmp_path: Path) -> None:
+    directory = _git_dir_with_head(tmp_path / "main", "ref: refs/heads/master\n")
+    (directory / "refs" / "heads" / "master").write_text(COMMIT, encoding="utf-8")
+    pointer = tmp_path / "worktree" / ".git"
+    pointer.parent.mkdir()
+    pointer.write_text(f"gitdir: {directory}\n", encoding="utf-8")
+
+    assert buildinfo.head_commit(pointer) == COMMIT
+
+
+def test_head_commit_without_metadata(tmp_path: Path) -> None:
+    assert buildinfo.head_commit(tmp_path / ".git") is None
+
+
+def test_commit_from_the_baked_git_copy_when_git_is_unavailable(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The container has neither git nor history: HEAD of the baked copy is the commit."""
+    directory = _git_dir_with_head(tmp_path, "ref: refs/heads/master\n")
+    (directory / "refs" / "heads" / "master").write_text(COMMIT, encoding="utf-8")
+    monkeypatch.setattr(buildinfo, "REPO", tmp_path)
+    monkeypatch.setattr(buildinfo, "_git", lambda *args: None)
+    monkeypatch.delenv("DUOSAVE_COMMIT", raising=False)
+    monkeypatch.delenv("GITHUB_SHA", raising=False)
+
+    info = buildinfo.build_info()
+
+    assert info["commit"] == COMMIT
+    assert info["short"] == COMMIT[:7]
+    assert info["commit_url"] == f"https://github.com/northis/duosave/commit/{COMMIT}"
+    assert info["dirty"] is False
+
+
+def test_without_git_and_metadata_only_version_is_known(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(buildinfo, "REPO", tmp_path)  # no .git: a source archive, not a checkout
     monkeypatch.setattr(buildinfo, "_git", lambda *args: None)
     monkeypatch.delenv("DUOSAVE_COMMIT", raising=False)
     monkeypatch.delenv("GITHUB_SHA", raising=False)

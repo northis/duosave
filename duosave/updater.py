@@ -193,7 +193,12 @@ class Runner:
             return {"revision": None, "running": False, "image": None}
         revision, _, rest = result.stdout.strip().partition("|")
         status, _, image = rest.partition("|")
-        return {"revision": revision or None, "running": status.strip() == "running",
+        running = status.strip() == "running"
+        if not revision and running:
+            # an image built by a plain `docker compose up -d --build` has no revision label:
+            # the commit is resolved inside the container (see duosave/buildinfo.py)
+            revision = self._container_commit() or ""
+        return {"revision": revision or None, "running": running,
                 "image": image.strip() or None}
 
     def _refresh_repo(self, repo: dict) -> None:

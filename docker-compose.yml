@@ -25,7 +25,8 @@ services:
       # listen on all interfaces so the published ports work
       DUOSAVE_HOST: 0.0.0.0
       DUOSAVE_ADMIN_HOST: 0.0.0.0
-      # the commit is baked at build time (see Dockerfile): DUOSAVE_COMMIT is a build arg now
+      # the commit is baked at build time (see Dockerfile): DUOSAVE_COMMIT is a build arg now,
+      # and when it is not set the image takes the HEAD of the checkout it is built from
       DUOSAVE_REPO_URL: "${DUOSAVE_REPO_URL:-}"
     volumes:
       # database (duosave.db + WAL), OCR cache, Drops crops, thumbnails, embedding model, wordlists

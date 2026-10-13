@@ -14,8 +14,15 @@ deploy/
 AGENTS.md
 requirements-agent.txt
 
+# Git metadata: the builder gets only HEAD and the refs, never history or objects. The image
+# resolves its commit from them (duosave/buildinfo.py) when DUOSAVE_COMMIT is not passed — that
+# is how a plain `docker compose up -d --build` after `git pull` stamps the new commit.
+.git/*
+!.git/HEAD
+!.git/packed-refs
+!.git/refs/
+
 # Local development artifacts.
-.git/
 .gitignore
 .gitattributes
 .sdd/
