@@ -31,11 +31,11 @@ def test_admin_api_hidden_on_public_listener(client: TestClient) -> None:
 
     assert any(dep.dependency is security.require_local for dep in admin.router.dependencies)
     assert client.get("/api/admin/backup", params={"kind": "db"}).status_code == 404
-    assert client.post("/api/admin/update").status_code == 404
+    assert client.post("/api/admin/patches").status_code == 404
 
 
 def test_local_check_runs_before_csrf(client: TestClient) -> None:
-    response = client.post("/api/admin/update", headers={"X-Duosave-Request": "1"})
+    response = client.post("/api/admin/patches", headers={"X-Duosave-Request": "1"})
 
     assert response.status_code == 404
 
@@ -87,9 +87,19 @@ def test_admin_panels_are_wired() -> None:
     html = (STATIC / "admin.html").read_text(encoding="utf-8")
     js = (STATIC / "admin.js").read_text(encoding="utf-8")
 
-    for panel in ("update-body", "patch-body", "backup-body"):
-        assert f'id="{panel}"' in html or panel == "update-body"
+    for panel in ("patch-body", "backup-body"):
+        assert f'id="{panel}"' in html
     assert "patchSection" in js
     assert "backupSection" in js
     assert "/api/admin/known-hashes" in js
     assert "/api/admin/patches" in js
+
+
+def test_admin_page_has_no_update_panel() -> None:
+    """2.3 removed the self-update daemon: the page has no update controls any more."""
+    html = (STATIC / "admin.html").read_text(encoding="utf-8")
+    js = (STATIC / "admin.js").read_text(encoding="utf-8")
+
+    assert "update-body" not in html
+    assert "updateSection" not in js
+    assert "/api/admin/update" not in js

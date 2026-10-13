@@ -14,12 +14,11 @@ MEDIA_DIR = DATA_DIR / "media"
 DROPS_MEDIA_DIR = MEDIA_DIR / "drops"
 EXPORT_DIR = REPO / "exports"
 
-# Maintenance (2.2): agent inbox/outbox, staged patches, DB snapshots, updater control files.
+# Maintenance (2.2): agent inbox/outbox, staged patches, DB snapshots.
 INBOX_DIR = REPO / "inbox"
 OUTBOX_DIR = REPO / "outbox"
 PATCHES_DIR = DATA_DIR / "patches"
 BACKUPS_DIR = DATA_DIR / "backups"
-CONTROL_DIR = DATA_DIR / "control"
 
 PATCH_MAX_MB = int(os.environ.get("DUOSAVE_PATCH_MAX_MB") or 100)
 PATCH_PART_MB = 50

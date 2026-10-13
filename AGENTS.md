@@ -2,7 +2,7 @@
 
 Duosave is a personal Duolingo/Drops card database: a pipeline that recognizes screenshots
 (OCR, Drops crops, embeddings for semantic search) and a local FastAPI site with search, a
-review queue and a maintenance page (`/admin`) for updates, patches and backups.
+review queue and a maintenance page (`/admin`) for patches and backups.
 
 ## Layout
 
@@ -11,7 +11,7 @@ review queue and a maintenance page (`/admin`) for updates, patches and backups.
 | `duosave/` | pipeline and CLI (`sync`, `index`, `serve`, `snapshot`, `patch …`) |
 | `duosave/server/` | FastAPI app, admin router, security guards, static UI |
 | `tests/` | pytest suite (offline: no Docker, no network, no real models) |
-| `deploy/` | host-side deployment helpers (Windows scheduled task for the updater) |
+| `deploy/` | host-side update script (`windows/update.ps1`: git pull + docker build + restart) |
 | `.agents/skills/` | agent skills (table below) |
 | `.sdd/specs/` | specifications and implementation plans (local, git-ignored) |
 
@@ -25,8 +25,19 @@ python -m duosave sync --index                                      # recognize 
 python -m duosave snapshot --label manual                           # consistent DB snapshot
 python -m duosave patch scan --inbox "<folder>"                     # agent-side patches
 docker compose up -d --build                                        # production on the host
-python -m duosave.updater status                                    # updater on the host
+powershell -ExecutionPolicy Bypass -File deploy\windows\update.ps1  # console update on the host
 ```
+
+## Versioning
+
+- Every change bumps the **minor** version: edit `__version__` in `duosave/__init__.py`
+  (2.3.0 → 2.4.0) and the assertion in `tests/test_buildinfo.py` in the same commit.
+- Tag that commit with the same version: `git tag -a v2.4.0 -m "duosave 2.4.0"`.
+- Publish the tag together with the branch: `git push --follow-tags origin master` (or
+  `git push origin master v2.4.0`). Run `git config push.followTags true` once per clone so a
+  plain `git push` carries tags too — a tag that was never pushed does not reach the server.
+- The host update script builds from the tagged commit and bakes `vX.Y.Z` into the image (the
+  site header shows it); it warns when the deployed commit has no matching tag.
 
 ## Conventions
 

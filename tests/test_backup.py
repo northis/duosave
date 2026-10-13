@@ -96,7 +96,7 @@ def test_full_backup_zip_contents(tmp_repo) -> None:
         "data/thumbs/x.png",
         "data/cache/x.json",
         "data/backups/old.db",
-        "data/control/x",
+        "data/other/x",
         "data/patches/applied/x.zip",
         "screens_raw/raw.png",
     ]

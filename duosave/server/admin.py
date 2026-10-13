@@ -12,10 +12,9 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
-from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from .. import backup, config, control, patch_apply, patchfmt
+from .. import backup, config, patch_apply, patchfmt
 from ..buildinfo import build_info
 from ..db import connect
 from .security import AdminError, actor, audit, forbid_cross_site, require_csrf, require_local
@@ -199,52 +198,3 @@ def api_known_hashes(_: None = Depends(forbid_cross_site)) -> PlainTextResponse:
         "Content-Disposition": f'attachment; filename="duosave-known-hashes-{stamp}.txt"',
         "Cache-Control": "no-store",
     })
-
-
-# ---------------------------------------------------------------------- update
-
-
-class UpdateRequest(BaseModel):
-    action: Literal["update", "check"] = "update"
-
-
-def _job_state(status: dict | None) -> str | None:
-    job = (status or {}).get("job")
-    return job.get("state") if isinstance(job, dict) else None
-
-
-@router.get("/api/admin/update")
-def api_update_status() -> dict:
-    status = control.read_json(control.status_path(config.DATA_DIR))
-    info = build_info()
-    return {
-        "runner_alive": control.runner_alive(status),
-        "pending": (control.request_path(config.DATA_DIR).exists()
-                    or control.processing_path(config.DATA_DIR).exists()),
-        "site": {"version": info["version"], "commit": info["commit"]},
-        "status": status,
-        "log_tail": control.tail(control.log_path(config.DATA_DIR), 200),
-    }
-
-
-@router.post("/api/admin/update", status_code=202)
-def api_update_request(request: Request, payload: UpdateRequest,
-                       _: None = Depends(require_csrf)) -> dict:
-    """Write an update request; the host runner picks it up within 5 s."""
-    status = control.read_json(control.status_path(config.DATA_DIR))
-    if not control.runner_alive(status):
-        raise AdminError(503, "runner_offline", "the updater is not running (see README)")
-    if (control.request_path(config.DATA_DIR).exists()
-            or control.processing_path(config.DATA_DIR).exists()
-            or _job_state(status) == "running"):
-        raise AdminError(409, "pending", "an update request is already waiting")
-    reason = busy_reason()
-    if reason:
-        raise AdminError(409, "busy", reason)
-    who = actor(request)
-    if payload.action == "update":
-        backup.snapshot("pre-update")
-    new = control.new_request(payload.action, who)
-    control.write_json_atomic(control.request_path(config.DATA_DIR), new)
-    audit("update_request", who, request_action=payload.action, request_id=new["id"])
-    return {"id": new["id"], "action": payload.action}

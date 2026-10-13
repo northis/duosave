@@ -2,7 +2,6 @@
 "use strict";
 
 Object.assign(I18N.ru, {
-  adm_update: "Версия и обновление",
   adm_patches: "Импорт патча",
   adm_backup: "Бэкап",
   adm_busy: "Выполняется другая операция…",
@@ -41,54 +40,8 @@ Object.assign(I18N.ru, {
   pt_when: "Когда",
   pt_who: "Кто",
   pt_files: "Файлов",
-  up_site: "Сайт",
-  up_remote: "GitHub",
-  up_worktree: "Рабочая копия",
-  up_runner: "Исполнитель",
-  up_runner_ok: "работает",
-  up_runner_off: "не отвечает — см. README, «Обновление по кнопке»",
-  up_behind: "опережает на {n}",
-  up_uptodate: "актуально",
-  up_checked: "проверено {time}",
-  up_dirty: "есть незакоммиченные правки",
-  up_clean: "чисто",
-  up_check: "Проверить обновления",
-  up_update: "Обновить",
-  up_confirm: "Обновить сайт? Будет выполнен git pull, сборка образа и перезапуск контейнера.",
-  up_restarting: "Перезапуск…",
-  up_last: "Последнее задание",
-  up_state_queued: "в очереди",
-  up_state_running: "выполняется",
-  up_state_succeeded: "успешно",
-  up_state_noop: "уже актуально",
-  up_state_failed: "ошибка",
-  up_state_rolled_back: "откат выполнен",
-  up_state_rollback_failed: "откат не удался",
-  up_reason_fetch_failed: "нет связи с GitHub",
-  up_reason_wrong_branch: "рабочая копия не на целевой ветке",
-  up_reason_not_fast_forward: "история разошлась или есть конфликтующие правки",
-  up_reason_unpushed_commits: "есть неотправленные коммиты",
-  up_reason_docker_unavailable: "Docker Desktop не запущен",
-  up_reason_build_failed: "сборка образа упала",
-  up_reason_compose_failed: "контейнер не пересоздался",
-  up_reason_unhealthy: "новый контейнер не прошёл проверку здоровья",
-  up_reason_rollback_failed: "откат не удался — проверьте README",
-  up_reason_interrupted: "задание прервано",
-  up_step_fetch: "git fetch",
-  up_step_verify: "проверка ветки",
-  up_step_merge: "git merge --ff-only",
-  up_step_compare: "сравнение с контейнером",
-  up_step_snapshot: "снимок БД",
-  up_step_worktree: "чистое дерево сборки",
-  up_step_build: "сборка образа",
-  up_step_restart: "перезапуск контейнера",
-  up_step_health: "проверка здоровья",
-  up_step_rollback: "откат",
-  up_step_cleanup: "уборка",
-  up_log: "Журнал",
 });
 Object.assign(I18N.en, {
-  adm_update: "Version and update",
   adm_patches: "Patch import",
   adm_backup: "Backup",
   adm_busy: "Another operation is in progress…",
@@ -127,51 +80,6 @@ Object.assign(I18N.en, {
   pt_when: "When",
   pt_who: "Who",
   pt_files: "Files",
-  up_site: "Site",
-  up_remote: "GitHub",
-  up_worktree: "Working copy",
-  up_runner: "Updater",
-  up_runner_ok: "running",
-  up_runner_off: "not responding — see README, “Update by button”",
-  up_behind: "{n} commit(s) ahead",
-  up_uptodate: "up to date",
-  up_checked: "checked {time}",
-  up_dirty: "uncommitted changes",
-  up_clean: "clean",
-  up_check: "Check for updates",
-  up_update: "Update",
-  up_confirm: "Update the site? This runs git pull, builds the image and restarts the container.",
-  up_restarting: "Restarting…",
-  up_last: "Last job",
-  up_state_queued: "queued",
-  up_state_running: "running",
-  up_state_succeeded: "succeeded",
-  up_state_noop: "already up to date",
-  up_state_failed: "failed",
-  up_state_rolled_back: "rolled back",
-  up_state_rollback_failed: "rollback failed",
-  up_reason_fetch_failed: "GitHub is unreachable",
-  up_reason_wrong_branch: "the working copy is not on the target branch",
-  up_reason_not_fast_forward: "diverged history or conflicting local changes",
-  up_reason_unpushed_commits: "there are unpushed commits",
-  up_reason_docker_unavailable: "Docker Desktop is not running",
-  up_reason_build_failed: "the image build failed",
-  up_reason_compose_failed: "the container was not recreated",
-  up_reason_unhealthy: "the new container did not become healthy",
-  up_reason_rollback_failed: "rollback failed — see README",
-  up_reason_interrupted: "the job was interrupted",
-  up_step_fetch: "git fetch",
-  up_step_verify: "branch check",
-  up_step_merge: "git merge --ff-only",
-  up_step_compare: "compare with the container",
-  up_step_snapshot: "DB snapshot",
-  up_step_worktree: "clean build tree",
-  up_step_build: "image build",
-  up_step_restart: "container restart",
-  up_step_health: "health check",
-  up_step_rollback: "rollback",
-  up_step_cleanup: "cleanup",
-  up_log: "Log",
 });
 
 /* fetch with the CSRF header on mutations; throws Error with .status/.payload on failures */
@@ -427,134 +335,3 @@ const patchSection = {
   },
 };
 ADMIN_SECTIONS.push(patchSection);
-
-/* --------------------------------- update -------------------------------- */
-const updateSection = {
-  data: null,
-  busy: false,
-  restarting: false,
-  before: null,
-  timer: null,
-  init() { this.refresh(); },
-  render() { this.paint(); },
-
-  async refresh() {
-    if (this.restarting) return this.pollRestart();
-    try {
-      this.data = await adminFetch("/api/admin/update");
-    } catch (err) {
-      if (this.busy) this.restarting = true;
-    }
-    this.paint();
-    this.schedule();
-  },
-
-  async pollRestart() {
-    try {
-      const info = await fetchJson("/api/version");
-      if (this.before && info.commit && info.commit !== this.before) {
-        window.location.reload();
-        return;
-      }
-    } catch (err) { /* the container is still restarting */ }
-    this.paint();
-    this.schedule();
-  },
-
-  schedule() {
-    clearTimeout(this.timer);
-    const job = this.data && this.data.status && this.data.status.job;
-    const running = this.restarting || this.busy || (this.data && this.data.pending)
-      || (job && job.state === "running");
-    this.timer = setTimeout(() => this.refresh(), running ? 2000 : 15000);
-  },
-
-  async request(action) {
-    if (action === "update" && !window.confirm(t("up_confirm"))) return;
-    this.before = this.data && this.data.site ? this.data.site.commit : null;
-    this.busy = true;
-    this.paint();
-    try {
-      await adminFetch("/api/admin/update", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
-      });
-    } catch (err) {
-      window.alert(err.message);
-    }
-    this.busy = false;
-    this.refresh();
-  },
-
-  remoteText(repo) {
-    if (!repo || !repo.remote) return "—";
-    const checked = repo.fetched_at ? " · " + esc(t("up_checked").replace("{time}", fmtTime(repo.fetched_at))) : "";
-    if (repo.fetch_error) return `<span class="state-bad">${esc(repo.fetch_error)}</span>`;
-    if (repo.behind > 0) {
-      return `<span class="state-warn">${esc(t("up_behind").replace("{n}", repo.behind))}</span>${checked}`;
-    }
-    return `<span class="state-ok">${esc(t("up_uptodate"))}</span>${checked}`;
-  },
-
-  worktreeText(repo) {
-    if (!repo || !repo.head) return "—";
-    const dirty = repo.dirty ? t("up_dirty") : t("up_clean");
-    return `${esc(repo.head.slice(0, 7))} · ${esc(dirty)}`;
-  },
-
-  jobText(job) {
-    if (!job) return "";
-    const state = t("up_state_" + job.state) || job.state;
-    const reason = job.reason ? ` · ${esc(t("up_reason_" + job.reason) || job.reason)}` : "";
-    const step = job.state === "running" && job.step
-      ? ` · ${esc(t("up_step_" + job.step) || job.step)}` : "";
-    const cls = job.state === "succeeded" || job.state === "noop" ? "state-ok"
-      : (job.state === "running" || job.state === "queued" ? "state-warn" : "state-bad");
-    const when = job.finished_at || job.started_at || "";
-    return `<p class="${cls}">${esc(state)}${reason}${step}
-      <span class="muted">· ${esc(when)}</span></p>`;
-  },
-
-  paint() {
-    const body = document.getElementById("update-body");
-    if (!body) return;
-    if (this.restarting) {
-      body.innerHTML = `<p class="state-warn">${esc(t("up_restarting"))}</p>`;
-      return;
-    }
-    if (!this.data) {
-      body.innerHTML = `<p class="state-bad">${esc(t("up_runner_off"))}</p>`;
-      return;
-    }
-    const status = this.data.status || {};
-    const repo = status.repo || {};
-    const deployed = status.deployed || {};
-    const job = status.job || null;
-    const alive = this.data.runner_alive;
-    const busy = this.busy || (job && job.state === "running") || this.data.pending;
-    const upToDate = Boolean(repo.remote && deployed.commit === repo.remote);
-    const rows = [
-      [t("up_site"), `v${esc(this.data.site.version)} · ${esc((this.data.site.commit || "").slice(0, 7))}`],
-      [t("up_remote"), this.remoteText(repo)],
-      [t("up_worktree"), this.worktreeText(repo)],
-      [t("up_runner"), alive ? esc(t("up_runner_ok")) : `<span class="state-bad">${esc(t("up_runner_off"))}</span>`],
-    ].map(([key, value]) => `<dt>${esc(key)}</dt><dd>${value}</dd>`).join("");
-    const check = `<button class="btn" ${busy ? "disabled" : ""}
-      onclick="updateSection.request('check')">${esc(t("up_check"))}</button>`;
-    const update = `<button class="btn accent" ${(busy || !alive || upToDate) ? "disabled" : ""}
-      onclick="updateSection.request('update')">${esc(t("up_update"))}</button>`;
-    const log = (this.data.log_tail || []).slice(-40).join("\n");
-    body.innerHTML = `<dl class="kv">${rows}</dl>
-      <p class="row">${check}${update}</p>
-      ${job ? `<div class="path">${esc(t("up_last"))}:</div>${this.jobText(job)}` : ""}
-      ${log ? `<div class="path">${esc(t("up_log"))}:</div><pre class="log">${esc(log)}</pre>` : ""}`;
-  },
-};
-ADMIN_SECTIONS.push(updateSection);
-
-function fmtTime(iso) {
-  const date = new Date(iso);
-  if (isNaN(date.getTime())) return iso;
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}

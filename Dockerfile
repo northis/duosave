@@ -24,7 +24,7 @@ RUN python -m pip install --upgrade pip \
 COPY . .
 
 # Build metadata: declared after the dependency layer so a new commit does not invalidate
-# the pip layer. The updater passes these as --build-arg (see duosave/updater.py); when they are
+# the pip layer. deploy/windows/update.ps1 passes these as --build-arg; when they are
 # empty — a plain `docker compose up -d --build` after `git pull` — the commit is read from the
 # trimmed .git that COPY . . brings in (see .dockerignore and duosave/buildinfo.py).
 ARG DUOSAVE_COMMIT=""

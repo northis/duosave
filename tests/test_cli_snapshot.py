@@ -1,4 +1,4 @@
-"""CLI snapshot command (used by the updater through docker exec)."""
+"""CLI snapshot command (the host update script calls it through docker exec)."""
 
 from __future__ import annotations
 

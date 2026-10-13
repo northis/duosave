@@ -100,7 +100,6 @@ def tmp_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Simple
     monkeypatch.setattr(config, "DROPS_MEDIA_DIR", data / "media" / "drops")
     monkeypatch.setattr(config, "PATCHES_DIR", data / "patches")
     monkeypatch.setattr(config, "BACKUPS_DIR", data / "backups")
-    monkeypatch.setattr(config, "CONTROL_DIR", data / "control")
     monkeypatch.setattr(config, "INBOX_DIR", root / "inbox")
     monkeypatch.setattr(config, "OUTBOX_DIR", root / "outbox")
     monkeypatch.setattr(db, "DB_PATH", data / "duosave.db")
