@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -62,6 +62,13 @@ def index() -> FileResponse:
 @app.get("/review")
 def review_page() -> FileResponse:
     return FileResponse(STATIC / "review.html")
+
+
+# Browsers ask for /favicon.ico by convention (and keep asking from cache when the page already
+# points at the svg), so send them to the owl icon instead of a 404.
+@app.get("/favicon.ico")
+def favicon() -> RedirectResponse:
+    return RedirectResponse("/static/favicon.svg")
 
 
 @app.get("/api/search")
