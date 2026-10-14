@@ -4,6 +4,19 @@
   "id": "/",
   "start_url": "/",
   "scope": "/",
+  "share_target": {
+    "action": "/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "images",
+          "accept": ["image/png", "image/jpeg", "image/webp", ".png", ".jpg", ".jpeg", ".webp"]
+        }
+      ]
+    }
+  },
   "display": "standalone",
   "background_color": "#f6f1e8",
   "theme_color": "#f6f1e8",

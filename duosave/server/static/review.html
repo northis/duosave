@@ -24,12 +24,23 @@
       <a href="#" data-lang="ru" class="active">RU</a>
       <a href="#" data-lang="en">EN</a>
     </div>
+    <button id="upload-btn" class="theme-btn" title="upload" aria-expanded="false"
+            aria-controls="upload-panel" data-i18n-title="upload_btn">⬆</button>
     <button id="theme-btn" class="theme-btn" title="theme">🌙</button>
     <span id="build-badge" class="build-badge" hidden>
       <a id="build-version" target="_blank" rel="noopener"></a>
       <a id="build-commit" target="_blank" rel="noopener" hidden></a>
     </span>
   </header>
+
+  <section id="upload-panel" class="upload-panel" hidden>
+    <div id="drop-zone" class="drop-zone">
+      <p class="upload-hint" data-i18n="upload_hint">Перетащите картинку сюда или выберите файл</p>
+      <label class="btn upload-pick" for="upload-input" data-i18n="upload_btn">Загрузить картинку</label>
+      <input id="upload-input" class="upload-input" type="file" multiple accept="image/*">
+    </div>
+    <div id="upload-results" class="upload-results" aria-live="polite"></div>
+  </section>
 
   <div class="stats-line" id="stats-line"></div>
   <section id="review-list"></section>

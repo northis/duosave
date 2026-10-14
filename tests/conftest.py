@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from duosave import db
 from duosave.config import EMBEDDING_DIM
+from duosave.recognize import Recognition
 
 
 class FakeEmbedder:
@@ -43,6 +44,38 @@ class FakeEmbedder:
     def passage_embed(self, texts: list[str]) -> Iterator[np.ndarray]:
         self.passage_calls += 1
         return (self.vector_for(text) for text in texts)
+
+
+class FakeVision:
+    """Deterministic vision recognizer: no network, no model, no HTTP call."""
+
+    def __init__(self) -> None:
+        self.available = True
+        self.calls = 0
+        self.media_types: list[str] = []
+        self.result = Recognition()
+        self.error: Exception | None = None
+
+
+@pytest.fixture
+def fake_vision(monkeypatch: pytest.MonkeyPatch) -> FakeVision:
+    from duosave import vision
+
+    fake = FakeVision()
+
+    def available() -> bool:
+        return fake.available
+
+    async def recognize_bytes(data: bytes, media_type: str) -> Recognition:
+        fake.calls += 1
+        fake.media_types.append(media_type)
+        if fake.error is not None:
+            raise fake.error
+        return fake.result
+
+    monkeypatch.setattr(vision, "available", available)
+    monkeypatch.setattr(vision, "recognize_bytes", recognize_bytes)
+    return fake
 
 
 @pytest.fixture

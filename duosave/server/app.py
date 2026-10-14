@@ -28,6 +28,7 @@ from ..semantic import hybrid_search
 from ..text import fold_text
 from .admin import router as admin_router
 from .security import AdminError, admin_error_handler, is_local_admin
+from .upload import router as upload_router
 
 STATIC = Path(__file__).resolve().parent / "static"
 MANIFEST = STATIC / "manifest.webmanifest"
@@ -78,6 +79,14 @@ def favicon() -> RedirectResponse:
 @app.get("/manifest.webmanifest")
 def manifest() -> FileResponse:
     return FileResponse(MANIFEST, media_type="application/manifest+json")
+
+
+# Service worker for the system share sheet. An explicit route rather than `/static/sw.js`:
+# a worker served from `/static/` can only control `/static/`, while the share target posts
+# to `/share`.
+@app.get("/sw.js")
+def service_worker() -> FileResponse:
+    return FileResponse(STATIC / "sw.js", media_type="application/javascript")
 
 
 @app.get("/api/search")
@@ -196,3 +205,4 @@ def api_session(request: Request) -> JSONResponse:
 
 app.add_exception_handler(AdminError, admin_error_handler)
 app.include_router(admin_router)
+app.include_router(upload_router)

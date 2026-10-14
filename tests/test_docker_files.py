@@ -50,6 +50,22 @@ def test_env_example_documents_bind_addresses() -> None:
     assert "DUOSAVE_ADMIN_PORT" in ENV_EXAMPLE
 
 
+def test_compose_passes_the_vision_env() -> None:
+    environment = COMPOSE.split("environment:")[1].split("volumes:")[0]
+    for name in (
+        "DUOSAVE_VISION_API_KEY",
+        "DUOSAVE_VISION_MODEL",
+        "DUOSAVE_VISION_BASE_URL",
+        "DUOSAVE_VISION_TIMEOUT",
+        "DUOSAVE_VISION_MAX_MB",
+    ):
+        assert f'{name}: "${{{name}:-}}"' in environment
+
+
+def test_env_example_documents_the_vision_key() -> None:
+    assert "DUOSAVE_VISION_API_KEY" in ENV_EXAMPLE
+
+
 def test_dockerignore_excludes_agent_and_deploy_files() -> None:
     dockerignore = (REPO / ".dockerignore").read_text(encoding="utf-8")
 

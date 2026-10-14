@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageOps
 
-from .config import APP_CARD, APP_DROPS, APP_DUO, AUTO_APPS, RECOGNIZER_VERSION
+from .config import APP_CARD, APP_DROPS, APP_DUO, AUTO_APPS, LANGUAGES, RECOGNIZER_VERSION
 from .text import (
     ENGLISH_WORDS,
     SHARED_WORDS,
@@ -428,6 +428,20 @@ def _extract_once(image: Image.Image, mode: str) -> tuple[str | None, str, str, 
     return screen_type, original, translation, language, source, marker
 
 
+def _policy_tail(recognition: Recognition) -> tuple[str, str]:
+    """Shared tail of the status policy: known language, then dictionary check.
+
+    Used by both the OCR policy and the vision policy so the two engines agree
+    on when a recognized pair may be auto-accepted.
+    """
+    if recognition.language not in LANGUAGES:
+        return "review", "language_unknown"
+    first = recognition.pairs[0]
+    if not dict_ok(first.original, recognition.language):
+        return "review", "dictionary"
+    return "auto", ""
+
+
 def _policy(recognition: Recognition, passes: int) -> tuple[str, str]:
     if not recognition.usable:
         return "skipped", recognition.reason or "no_pair"
@@ -441,12 +455,23 @@ def _policy(recognition: Recognition, passes: int) -> tuple[str, str]:
             return "review", "language_uncertain"
     else:
         return "review", "single_pass"
-    if recognition.language not in ("pl", "es", "pt"):
-        return "review", "language_unknown"
-    first = recognition.pairs[0]
-    if not dict_ok(first.original, recognition.language):
-        return "review", "dictionary"
-    return "auto", ""
+    return _policy_tail(recognition)
+
+
+def vision_policy(recognition: Recognition) -> tuple[str, str]:
+    """Status policy for the vision recognizer (no two-pass agreement check).
+
+    A frame with no pairs is skipped only when the model called it ``other``
+    (chat, bank, leaderboard); a study screen with no visible English side goes
+    to the review queue so the pair can be filled in by hand.
+    """
+    if not recognition.pairs:
+        if recognition.app == "other":
+            return "skipped", "vision_no_pair"
+        return "review", "vision_no_pair"
+    if recognition.app not in AUTO_APPS:
+        return "review", "app_screen"
+    return _policy_tail(recognition)
 
 
 def recognize_image(path: Path, kind_hint: str = "auto", passes: int = 2) -> tuple[Recognition, dict]:

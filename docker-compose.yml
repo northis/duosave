@@ -28,6 +28,13 @@ services:
       # the commit is baked at build time (see Dockerfile): DUOSAVE_COMMIT is a build arg now,
       # and when it is not set the image takes the HEAD of the checkout it is built from
       DUOSAVE_REPO_URL: "${DUOSAVE_REPO_URL:-}"
+      # Vision recognition for uploads: the key is a server-side secret and never reaches the
+      # browser; empty values keep vision off — uploads fall back to local OCR.
+      DUOSAVE_VISION_API_KEY: "${DUOSAVE_VISION_API_KEY:-}"
+      DUOSAVE_VISION_MODEL: "${DUOSAVE_VISION_MODEL:-}"
+      DUOSAVE_VISION_BASE_URL: "${DUOSAVE_VISION_BASE_URL:-}"
+      DUOSAVE_VISION_TIMEOUT: "${DUOSAVE_VISION_TIMEOUT:-}"
+      DUOSAVE_VISION_MAX_MB: "${DUOSAVE_VISION_MAX_MB:-}"
     volumes:
       # database (duosave.db + WAL), OCR cache, Drops crops, thumbnails, embedding model, wordlists
       - "${DUOSAVE_DATA_DIR:-./data}:/app/data"

@@ -20,6 +20,19 @@ const I18N = {
     status_auto: "авто", status_review: "проверка", status_manual: "подтверждено",
     review_queue: "На проверке:", no_guess: "Пары не найдено — посмотрите скриншот",
     path: "Путь:",
+    upload_btn: "Загрузить картинку", upload_hint: "Перетащите картинку сюда или выберите файл",
+    upload_busy: "Распознаю…", upload_card: "карточка: {original} — {translation}",
+    upload_dup: "дубликат", upload_review: "в проверку", upload_open: "открыть",
+    upload_err_csrf: "Запрос отклонён — обновите страницу",
+    upload_err_too_large: "файл больше {mb} МБ", upload_err_too_large_no_limit: "файл слишком большой",
+    upload_err_not_an_image: "это не картинка",
+    upload_err_busy: "база занята — попробуйте ещё раз", upload_err_generic: "не удалось загрузить",
+    share_title: "Итог шары",
+    share_counts: "Новых карточек: {new} · В проверке: {review} · Не карточка: {skip} · Дубликатов: {dup}",
+    share_open_card: "Открыть карточку", share_to_review: "В «Проверку»",
+    share_to_search: "В поиск",
+    share_sw_stale: "Приложение не обновилось, закройте и откройте его заново",
+    share_empty: "В шаре не было картинок",
     build_title: "Duosave {v}, коммит {sha}", build_dirty: "локальные изменения",
   },
   en: {
@@ -40,6 +53,19 @@ const I18N = {
     status_auto: "auto", status_review: "review", status_manual: "verified",
     review_queue: "To review:", no_guess: "No pair found — check the screenshot",
     path: "Path:",
+    upload_btn: "Upload an image", upload_hint: "Drop an image here or choose a file",
+    upload_busy: "Recognizing…", upload_card: "card: {original} — {translation}",
+    upload_dup: "duplicate", upload_review: "to review", upload_open: "open",
+    upload_err_csrf: "Request rejected — reload the page",
+    upload_err_too_large: "file is larger than {mb} MB", upload_err_too_large_no_limit: "file is too large",
+    upload_err_not_an_image: "this is not an image",
+    upload_err_busy: "database is busy — try again", upload_err_generic: "upload failed",
+    share_title: "Share result",
+    share_counts: "New cards: {new} · To review: {review} · Not a card: {skip} · Duplicates: {dup}",
+    share_open_card: "Open the card", share_to_review: "To Review",
+    share_to_search: "To search",
+    share_sw_stale: "The app has not updated — close and reopen it",
+    share_empty: "No images in the share",
     build_title: "Duosave {v}, commit {sha}", build_dirty: "local changes",
   },
 };
@@ -49,6 +75,7 @@ function applyI18n() {
   document.documentElement.lang = lang;
   document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
   document.querySelectorAll("[data-i18n-ph]").forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => { el.title = t(el.dataset.i18nTitle); });
   document.querySelectorAll(".lang a").forEach((a) => a.classList.toggle("active", a.dataset.lang === lang));
 }
 document.querySelectorAll(".lang a").forEach((a) =>
@@ -61,6 +88,7 @@ document.querySelectorAll(".lang a").forEach((a) =>
     if (document.getElementById("cards")) render(true);
     else if (document.getElementById("review-list")) loadReview(true);
     else if (document.getElementById("admin") && typeof renderAdmin === "function") renderAdmin();
+    else if (document.getElementById("share")) renderShare();
   }));
 
 /* theme */
@@ -123,6 +151,11 @@ async function loadSession() {
     const link = document.getElementById("nav-admin");
     if (link && session.local_admin) link.hidden = false;
   } catch (err) { /* no admin on this listener */ }
+}
+
+/* The share target posts a navigation to /share: the worker rewrites it into API calls. */
+function registerServiceWorker() {
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 }
 
 function esc(s) {
@@ -279,6 +312,8 @@ function initIndex() {
   applyTheme();
   loadBuildInfo();
   loadSession();
+  registerServiceWorker();
+  initUploadPanel();
   const input = document.getElementById("search");
   if (input) {
     input.addEventListener("input", () => {
@@ -419,6 +454,8 @@ function initReviewPage() {
   applyTheme();
   loadBuildInfo();
   loadSession();
+  registerServiceWorker();
+  initUploadPanel();
   const more = document.getElementById("more");
   if (more) more.addEventListener("click", () => { reviewPage += 1; loadReview(false); });
   applyI18n();
@@ -463,4 +500,182 @@ async function editAction(btn, path) {
   await fetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path, action: "edit", original, translation }) });
   loadReview(true);
+}
+
+/* ------------------------------- upload --------------------------------- */
+const UPLOAD_ERRORS = {
+  csrf: "upload_err_csrf", too_large: "upload_err_too_large",
+  not_an_image: "upload_err_not_an_image", busy: "upload_err_busy",
+};
+
+function uploadErrorText(payload) {
+  const code = (payload && payload.error) || "";
+  const limit = payload && payload.limit_mb;
+  if (code === "too_large" && !limit) return t("upload_err_too_large_no_limit");
+  const text = t(UPLOAD_ERRORS[code] || "upload_err_generic");
+  return limit ? text.replace("{mb}", limit) : text;
+}
+
+function uploadRow(name) {
+  const results = document.getElementById("upload-results");
+  if (!results) return null;
+  const row = document.createElement("div");
+  row.className = "upload-row";
+  const label = document.createElement("span");
+  label.className = "upload-name";
+  label.textContent = name;
+  const text = document.createElement("span");
+  text.className = "upload-text";
+  row.appendChild(label);
+  row.appendChild(text);
+  results.appendChild(row);
+  return row;
+}
+
+function uploadText(row, text, href, linkText) {
+  if (!row) return;
+  const holder = row.querySelector(".upload-text");
+  holder.textContent = text;
+  if (!href) return;
+  const link = document.createElement("a");
+  link.className = "upload-open";
+  link.href = href;
+  link.textContent = linkText;
+  holder.appendChild(document.createTextNode(" "));
+  holder.appendChild(link);
+}
+
+function uploadOutcome(row, data) {
+  if (!row) return;
+  row.className = "upload-row done";
+  if (data.outcome === "duplicate") {
+    uploadText(row, t("upload_dup"), data.card_id ? "/?card=" + data.card_id : "", t("upload_open"));
+    return;
+  }
+  if (data.status === "review") {
+    uploadText(row, t("upload_review"), "/review", t("upload_open"));
+    return;
+  }
+  if (data.status === "auto" && data.card_id) {
+    const pair = (data.pairs && data.pairs[0]) || {};
+    const text = t("upload_card").replace("{original}", pair.original || "")
+      .replace("{translation}", pair.translation || "");
+    uploadText(row, text, "/?card=" + data.card_id, t("upload_open"));
+    return;
+  }
+  uploadText(row, data.path || "", "", ""); /* skipped: the frame is stored, no card */
+}
+
+/* One file at a time: raw bytes in the body, so vision calls never overlap. */
+async function uploadFile(file) {
+  const row = uploadRow(file.name);
+  if (row) {
+    row.className = "upload-row busy";
+    uploadText(row, t("upload_busy"), "", "");
+  }
+  try {
+    const res = await fetch("/api/upload", { method: "POST", headers: { "X-Duosave-Request": "1" }, body: file });
+    const payload = await res.json().catch(() => null);
+    if (!res.ok) {
+      if (row) row.className = "upload-row error";
+      uploadText(row, uploadErrorText(payload), "", "");
+      return false;
+    }
+    uploadOutcome(row, payload);
+    return true;
+  } catch (err) {
+    if (row) row.className = "upload-row error";
+    uploadText(row, uploadErrorText(null), "", "");
+    return false;
+  }
+}
+
+async function uploadFiles(files) {
+  const panel = document.getElementById("upload-panel");
+  const results = document.getElementById("upload-results");
+  if (!files.length) return;
+  if (panel) panel.dataset.state = "busy";
+  for (const file of files) await uploadFile(file);
+  if (panel) panel.dataset.state = results && results.querySelector(".upload-row.error") ? "error" : "done";
+  const btn = document.getElementById("upload-btn");
+  if (btn) btn.focus(); /* focus returns to the toggle once the queue is done */
+}
+
+function initUploadPanel() {
+  const btn = document.getElementById("upload-btn");
+  const panel = document.getElementById("upload-panel");
+  const zone = document.getElementById("drop-zone");
+  const input = document.getElementById("upload-input");
+  if (!btn || !panel || !zone || !input) return;
+  panel.dataset.state = "idle";
+  btn.addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+    btn.setAttribute("aria-expanded", String(!panel.hidden));
+  });
+  zone.addEventListener("dragover", (event) => { event.preventDefault(); zone.classList.add("dragover"); });
+  zone.addEventListener("dragleave", (event) => {
+    if (!zone.contains(event.relatedTarget)) zone.classList.remove("dragover");
+  });
+  zone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    zone.classList.remove("dragover");
+    uploadFiles(Array.from(event.dataTransfer.files || []));
+  });
+  input.addEventListener("change", () => {
+    const files = Array.from(input.files || []);
+    input.value = "";
+    uploadFiles(files);
+  });
+}
+
+/* -------------------------------- share ---------------------------------- */
+/* The share outcome page: counts and links come from the URL, never from the database. */
+const SHARE_COUNT_KEYS = ["new", "review", "skip", "dup"];
+
+function shareCount(params, key) {
+  const value = parseInt(params.get(key) || "0", 10);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function renderShare() {
+  const wrap = document.getElementById("share");
+  if (!wrap) return;
+  const params = new URLSearchParams(location.search);
+  const summary = document.getElementById("share-summary");
+  if (summary) {
+    let text = t("share_counts");
+    for (const key of SHARE_COUNT_KEYS) text = text.replace(`{${key}}`, shareCount(params, key));
+    summary.textContent = text;
+  }
+  const open = document.getElementById("share-open-card");
+  if (open) {
+    const card = shareCount(params, "card");
+    open.href = "/?card=" + card;
+    open.hidden = card === 0;
+  }
+  const note = document.getElementById("share-note");
+  if (!note) return;
+  const error = params.get("error") || "";
+  if (error === "sw") note.textContent = t("share_sw_stale");
+  else if (error === "empty") note.textContent = t("share_empty");
+  else if (error) note.textContent = uploadErrorText({ error });
+  note.hidden = !error;
+}
+
+function initSharePage() {
+  bindTheme();
+  applyTheme();
+  loadBuildInfo();
+  loadSession();
+  registerServiceWorker();
+  if (new URLSearchParams(location.search).get("error") === "sw") {
+    /* The service worker was not active: offer the usual file picker right away. */
+    initUploadPanel();
+    const panel = document.getElementById("upload-panel");
+    const btn = document.getElementById("upload-btn");
+    if (panel) panel.hidden = false;
+    if (btn) btn.setAttribute("aria-expanded", "true");
+  }
+  applyI18n();
+  renderShare();
 }

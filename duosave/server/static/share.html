@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f1e8">
+  <title>Duosave — итог шары</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon-180.png">
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <h1>🦉 Duosave</h1>
+    <nav class="nav">
+      <a href="/" data-i18n="nav_cards">Карточки</a>
+      <a href="/review" data-i18n="nav_review">Проверка</a>
+      <a href="/admin" id="nav-admin" data-i18n="nav_admin" hidden>Обслуживание</a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="lang">
+      <a href="#" data-lang="ru" class="active">RU</a>
+      <a href="#" data-lang="en">EN</a>
+    </div>
+    <button id="upload-btn" class="theme-btn" title="upload" aria-expanded="false"
+            aria-controls="upload-panel" data-i18n-title="upload_btn">⬆</button>
+    <button id="theme-btn" class="theme-btn" title="theme">🌙</button>
+    <span id="build-badge" class="build-badge" hidden>
+      <a id="build-version" target="_blank" rel="noopener"></a>
+      <a id="build-commit" target="_blank" rel="noopener" hidden></a>
+    </span>
+  </header>
+
+  <section id="upload-panel" class="upload-panel" hidden>
+    <div id="drop-zone" class="drop-zone">
+      <p class="upload-hint" data-i18n="upload_hint">Перетащите картинку сюда или выберите файл</p>
+      <label class="btn upload-pick" for="upload-input" data-i18n="upload_btn">Загрузить картинку</label>
+      <input id="upload-input" class="upload-input" type="file" multiple accept="image/*">
+    </div>
+    <div id="upload-results" class="upload-results" aria-live="polite"></div>
+  </section>
+
+  <main id="share">
+    <h2 data-i18n="share_title">Итог шары</h2>
+    <p id="share-summary" class="stats-line"></p>
+    <p id="share-note" class="stats-line" hidden></p>
+    <div>
+      <a id="share-open-card" class="btn" href="/" data-i18n="share_open_card" hidden>Открыть карточку</a>
+      <a class="btn" href="/review" data-i18n="share_to_review">В «Проверку»</a>
+      <a class="btn" href="/" data-i18n="share_to_search">В поиск</a>
+    </div>
+  </main>
+</div>
+
+<script src="/static/app.js"></script>
+<script>initSharePage();</script>
+</body>
+</html>

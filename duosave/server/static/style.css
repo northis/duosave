@@ -159,6 +159,33 @@ header.top .spacer { flex: 1; }
 .edit-form.open { display: flex; }
 .edit-form input { padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; font: inherit; }
 img.crop { max-width: 220px; border-radius: 12px; display: block; margin-top: 8px; }
+/* upload panel */
+.upload-panel { margin: 14px 0; }
+.upload-panel[hidden] { display: none; }
+.drop-zone {
+  border: 2px dashed var(--border); border-radius: 18px; background: var(--surface);
+  padding: 16px; text-align: center;
+}
+.drop-zone.dragover { border-color: var(--accent); background: var(--accent-soft); }
+.drop-zone .upload-hint { margin: 0 0 10px; color: var(--muted); font-size: 0.9rem; }
+.upload-pick { display: inline-block; cursor: pointer; }
+.drop-zone .upload-input { display: block; margin: 10px auto 0; font: inherit; color: var(--muted); }
+.upload-results { margin-top: 10px; }
+.upload-row {
+  display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+  padding: 8px 12px; margin-bottom: 8px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--surface); font-size: 0.9rem;
+}
+.upload-row .upload-name { font-weight: 700; word-break: break-all; }
+.upload-row .upload-text { color: var(--muted); }
+.upload-row.busy .upload-text::after {
+  content: ""; display: inline-block; width: 11px; height: 11px; margin-left: 8px;
+  border: 2px solid var(--accent); border-top-color: transparent; border-radius: 50%;
+  animation: spin 0.7s linear infinite; vertical-align: -2px;
+}
+.upload-row.done .upload-text { color: var(--ok-text); }
+.upload-row.error .upload-text { color: var(--bad-text); }
+.upload-row .upload-open { margin-left: 6px; }
 /* admin: maintenance panels */
 .panel {
   border: 1px solid var(--border); border-radius: 18px; background: var(--surface);

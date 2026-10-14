@@ -54,7 +54,8 @@ def save_cache(sha256: str, data: dict) -> None:
     (CACHE_DIR / f"{sha256}.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 
-def store_recognition(conn, rel_path: str, path: Path, sha256: str, data: dict) -> str:
+def store_recognition(conn, rel_path: str, path: Path, sha256: str, data: dict,
+                      recognizer: str = "ocr") -> str:
     """Store one recognition result; returns the file status."""
     recognition = Recognition.from_cache(data)
     stat = path.stat()
@@ -63,7 +64,7 @@ def store_recognition(conn, rel_path: str, path: Path, sha256: str, data: dict) 
         set_file(conn, path=rel_path, sha256=sha256, size=stat.st_size,
                  mtime=stat.st_mtime_ns, status=recognition.status,
                  reason=recognition.reason, elapsed=recognition.elapsed,
-                 created_ts=taken_ts)
+                 created_ts=taken_ts, recognizer=recognizer)
         return recognition.status
 
     crop_path = None
@@ -93,11 +94,12 @@ def store_recognition(conn, rel_path: str, path: Path, sha256: str, data: dict) 
         screen_type=recognition.screen_type,
         crop_path=crop_path,
         agreement=recognition.agreement,
+        recognizer=recognizer,
     )
     set_file(conn, path=rel_path, sha256=sha256, size=stat.st_size,
              mtime=stat.st_mtime_ns, status=recognition.status,
              reason=recognition.reason, elapsed=recognition.elapsed,
-             created_ts=taken_ts)
+             created_ts=taken_ts, recognizer=recognizer)
     return recognition.status
 
 

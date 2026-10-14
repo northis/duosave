@@ -30,6 +30,14 @@ STAGED_TTL_DAYS = 7
 ADMIN_HOST = os.environ.get("DUOSAVE_ADMIN_HOST") or "127.0.0.1"
 ADMIN_PORT = int(os.environ.get("DUOSAVE_ADMIN_PORT") or 8766)
 
+# Vision recognition (upload path): OpenAI-compatible chat completions endpoint.
+# An empty key disables vision — callers fall back to local OCR, not an error.
+VISION_API_KEY: str = os.environ.get("DUOSAVE_VISION_API_KEY") or ""
+VISION_MODEL: str = os.environ.get("DUOSAVE_VISION_MODEL") or "deepseek/deepseek-v4.1-flash"
+VISION_BASE_URL: str = os.environ.get("DUOSAVE_VISION_BASE_URL") or "https://openrouter.ai/api/v1"
+VISION_TIMEOUT: int = int(os.environ.get("DUOSAVE_VISION_TIMEOUT") or 60)
+VISION_MAX_MB: int = int(os.environ.get("DUOSAVE_VISION_MAX_MB") or 10)
+
 # Frequency word lists (FrequencyWords). Kept next to the golden-set tooling.
 WORDLIST_DIR = DATA_DIR / "wordlists"
 

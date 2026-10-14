@@ -182,11 +182,18 @@ def set_file(
     reason: str | None = None,
     elapsed: float | None = None,
     created_ts: int | None = None,
+    recognizer: str = "",
 ) -> None:
+    """Upsert one file row; an empty `recognizer` means "not given".
+
+    A fresh row gets the schema default ('ocr'); a conflict keeps the stored value
+    unless an explicit `recognizer` is passed.
+    """
     conn.execute(
         """
-        INSERT INTO files (path, sha256, size, mtime, created_ts, status, reason, elapsed, first_seen, last_seen)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO files (path, sha256, size, mtime, created_ts, status, reason, elapsed,
+                           recognizer, first_seen, last_seen)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(path) DO UPDATE SET
             sha256 = CASE WHEN excluded.sha256 != '' THEN excluded.sha256 ELSE files.sha256 END,
             size = CASE WHEN excluded.size > 0 THEN excluded.size ELSE files.size END,
@@ -194,9 +201,11 @@ def set_file(
             created_ts = COALESCE(excluded.created_ts, files.created_ts),
             status = CASE WHEN files.status IN ('reviewed', 'rejected') THEN files.status
                           ELSE excluded.status END,
-            reason = excluded.reason, elapsed = excluded.elapsed, last_seen = excluded.last_seen
+            reason = excluded.reason, elapsed = excluded.elapsed, last_seen = excluded.last_seen,
+            recognizer = CASE WHEN ? != '' THEN excluded.recognizer ELSE files.recognizer END
         """,
-        (path, sha256, size, mtime, created_ts, status, reason, elapsed, now(), now()),
+        (path, sha256, size, mtime, created_ts, status, reason, elapsed, recognizer or "ocr",
+         now(), now(), recognizer),
     )
 
 

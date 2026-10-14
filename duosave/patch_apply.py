@@ -14,13 +14,12 @@ from uuid import uuid4
 
 from PIL import Image
 
-from . import backup, config, crops, patchfmt
+from . import backup, config, crops, patchfmt, store
 from .db import (
     add_source,
     all_file_hashes,
     card_by_key,
     connect,
-    file_by_path,
     file_by_sha,
     get_patch,
     insert_patch,
@@ -103,24 +102,9 @@ def stage_file(path: Path, *, actor: str | None = None) -> dict:
     return payload
 
 
-def _name_taken(conn, path: str, sha256: str) -> bool:
-    """True when the target name holds different content (in `files` or on disk)."""
-    row = file_by_path(conn, path)
-    if row is not None:
-        return row["sha256"] != sha256
-    file_path = config.REPO / path
-    if file_path.exists():
-        return patchfmt.sha256_file(file_path) != sha256
-    return False
-
-
 def _target_for(conn, record: patchfmt.Record) -> tuple[str, bool]:
-    if not _name_taken(conn, record.file, record.sha256):
-        return record.file, False
-    stem, _, extension = record.file.rpartition(".")
-    folder = stem.split("/", 1)[0]
-    name = stem.split("/", 1)[1]
-    return f"{folder}/{name}-{record.sha256[:8]}.{extension}", True
+    folder, _, name = record.file.partition("/")
+    return store.target_path(conn, folder, name, record.sha256)
 
 
 def _classify(conn, records: list[patchfmt.Record]) -> tuple[list[dict], dict]:
