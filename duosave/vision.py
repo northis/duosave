@@ -26,6 +26,10 @@ TRANSPORT: httpx.AsyncBaseTransport | None = None
 
 _STATUS_REASONS = {401: "http_401", 402: "http_402", 429: "http_429"}
 
+# The chat completions path and the longest provider message that reaches the journal.
+_ENDPOINT = "/chat/completions"
+_DETAIL_LIMIT = 200
+
 _SYSTEM_PROMPT = """You extract vocabulary pairs from language-learning screenshots.
 Answer with one JSON object and nothing else — no markdown, no commentary.
 Keys:
@@ -49,11 +53,17 @@ Rules:
 
 
 class VisionUnavailable(Exception):
-    """Vision path cannot run; callers fall back to local OCR."""
+    """Vision path cannot run; callers fall back to local OCR.
 
-    def __init__(self, reason: str) -> None:
+    ``status`` is the provider's HTTP status when there was an answer, and
+    ``detail`` is its short message: both exist for the journal only.
+    """
+
+    def __init__(self, reason: str, status: int | None = None, detail: str = "") -> None:
         super().__init__(reason)
         self.reason = reason
+        self.status = status
+        self.detail = detail
 
 
 class AnswerPair(BaseModel):
@@ -159,6 +169,36 @@ def _status_reason(status: int) -> str:
     return _STATUS_REASONS.get(status, "http_5xx")
 
 
+def _shorten(text: str) -> str:
+    """Collapse whitespace and cut a provider message to one journal-safe line."""
+    return " ".join(text.split())[:_DETAIL_LIMIT]
+
+
+def _base_url() -> str:
+    """The API base: a trailing slash or an already complete endpoint path is accepted."""
+    base = config.VISION_BASE_URL.strip().rstrip("/")
+    if base.endswith(_ENDPOINT):
+        base = base[: -len(_ENDPOINT)].rstrip("/")
+    return base
+
+
+def _error_detail(response: httpx.Response) -> str:
+    """The provider's own error message, truncated; never the whole body."""
+    try:
+        body = response.json()
+    except ValueError:
+        return _shorten(response.text)
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, dict) and isinstance(error.get("message"), str):
+            return _shorten(error["message"])
+        if isinstance(error, str):
+            return _shorten(error)
+        if isinstance(body.get("message"), str):
+            return _shorten(body["message"])
+    return _shorten(response.text)
+
+
 def _response_content(response: httpx.Response) -> str:
     try:
         body = response.json()
@@ -199,17 +239,19 @@ async def recognize_bytes(data: bytes, media_type: str) -> Recognition:
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(
-            base_url=config.VISION_BASE_URL,
+            base_url=_base_url(),
             timeout=config.VISION_TIMEOUT,
             headers={"Authorization": f"Bearer {key}"},
             transport=TRANSPORT,
         ) as client:
-            response = await client.post("/chat/completions", json=payload)
+            response = await client.post(_ENDPOINT, json=payload)
     except httpx.TimeoutException as exc:
         raise VisionUnavailable("timeout") from exc
     except httpx.TransportError as exc:
         raise VisionUnavailable("transport") from exc
     elapsed = time.perf_counter() - started
     if not response.is_success:
-        raise VisionUnavailable(_status_reason(response.status_code))
+        raise VisionUnavailable(_status_reason(response.status_code),
+                                status=response.status_code,
+                                detail=_error_detail(response))
     return _to_recognition(parse_content(_response_content(response)), elapsed)

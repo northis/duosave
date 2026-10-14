@@ -8,7 +8,7 @@ import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 
-from duosave import config, db, patchfmt, recognize, sync
+from duosave import config, db, patch_apply, patchfmt, recognize, sync
 from duosave.config import APP_CARD, APP_DROPS, APP_DUO
 from duosave.recognize import Pair, Recognition
 from duosave.vision import VisionUnavailable
@@ -55,6 +55,12 @@ def _fake_ocr(monkeypatch: pytest.MonkeyPatch, calls: list[str] | None = None,
 
 def _row(conn: sqlite3.Connection, table: str, path: str):
     return conn.execute(f"SELECT * FROM {table} WHERE path = ?", (path,)).fetchone()
+
+
+@pytest.fixture(autouse=True)
+def _quiet_reindex(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Uploads trigger a background index rebuild: tests pin the trigger, not the run."""
+    monkeypatch.setattr(patch_apply, "start_reindex", lambda: None)
 
 
 # ----------------------------------------------------------------------- stored
@@ -283,7 +289,8 @@ def test_upload_busy_is_503(client: TestClient, tmp_repo, fake_vision,
     assert tmp_repo.conn.execute("SELECT COUNT(*) AS n FROM files").fetchone()["n"] == 0
     assert (tmp_repo.pictures / f"{sha256_hex(PNG)[:16]}.png").exists()
     assert (f"upload actor=owner@example.com path=pictures/{sha256_hex(PNG)[:16]}.png"
-            f" outcome=busy status= recognizer= reason= vision= renamed=False"
+            f" outcome=busy status= recognizer= reason= vision= vision_status= vision_detail="
+            f" renamed=False"
             in caplog.text)
 
 
@@ -362,14 +369,15 @@ def test_upload_journal_line_carries_actor_and_vision_reason(
     client: TestClient, tmp_repo, fake_vision, monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    fake_vision.error = VisionUnavailable("http_429")
+    fake_vision.error = VisionUnavailable("http_429", status=429, detail="Rate limit exceeded")
     _fake_ocr(monkeypatch, status="review", reason="app_screen")
 
     with caplog.at_level(logging.INFO, logger="duosave.admin"):
         payload = _upload(client, headers=ACTOR_HEADERS).json()
 
     assert (f"upload actor=owner@example.com path={payload['path']} outcome=stored"
-            f" status=review recognizer=ocr reason=app_screen vision=http_429 renamed=False"
+            f" status=review recognizer=ocr reason=app_screen vision=http_429"
+            f" vision_status=429 vision_detail=Rate limit exceeded renamed=False"
             in caplog.text)
     assert "Czy masz czas?" not in caplog.text
 
@@ -384,7 +392,69 @@ def test_upload_duplicate_is_journalled(client: TestClient, tmp_repo, fake_visio
 
     assert second["outcome"] == "duplicate"
     assert (f"upload actor=owner@example.com path={first['path']} outcome=duplicate"
+            f" status=auto recognizer=vision reason= vision= vision_status= vision_detail="
             in caplog.text)
+
+
+# --------------------------------------------------------------------- reindex
+
+
+def test_upload_starts_a_background_reindex(client: TestClient, tmp_repo, fake_vision,
+                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stored card must reach semantic search without a manual index run."""
+    fake_vision.result = _recognition()
+    started: list[str] = []
+    monkeypatch.setattr(patch_apply, "start_reindex", lambda: started.append("reindex"))
+
+    payload = _upload(client).json()
+
+    assert payload["card_id"] is not None
+    assert started == ["reindex"]
+
+
+def test_upload_without_a_card_does_not_reindex(client: TestClient, tmp_repo, fake_vision,
+                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_vision.result = _recognition(usable=False, app=APP_DUO, pairs=[],
+                                      status="review", reason="vision_no_pair")
+    started: list[str] = []
+    monkeypatch.setattr(patch_apply, "start_reindex", lambda: started.append("reindex"))
+
+    payload = _upload(client).json()
+
+    assert payload["card_id"] is None
+    assert started == []
+
+
+def test_upload_duplicate_does_not_reindex(client: TestClient, tmp_repo, fake_vision,
+                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_vision.result = _recognition()
+    _upload(client)
+    started: list[str] = []
+    monkeypatch.setattr(patch_apply, "start_reindex", lambda: started.append("reindex"))
+
+    payload = _upload(client).json()
+
+    assert payload["outcome"] == "duplicate"
+    assert started == []
+
+
+# The autouse no-op above hides the real trigger; this reference keeps it reachable.
+REAL_START_REINDEX = patch_apply.start_reindex
+
+
+def test_upload_indexes_the_new_card(client: TestClient, tmp_repo, fake_vision, fake_embedder,
+                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stored card reaches the semantic index through the real background reindex."""
+    fake_vision.result = _recognition()
+    monkeypatch.setattr(patch_apply, "start_reindex", REAL_START_REINDEX)
+
+    payload = _upload(client).json()
+    state = patch_apply.wait_reindex(5)
+
+    assert state["state"] == "done", state
+    assert state["result"]["added"] == 1
+    row = tmp_repo.conn.execute("SELECT card_id FROM card_embeddings").fetchone()
+    assert row["card_id"] == payload["card_id"]
 
 
 # ------------------------------------------------------------------- provenance
@@ -401,3 +471,17 @@ def test_review_action_keeps_the_recognizer(client: TestClient, tmp_repo, fake_v
                                 (payload["path"],)).fetchone()
     assert row["status"] == "reviewed"
     assert row["recognizer"] == "vision"
+
+
+def test_review_action_starts_a_background_reindex(client: TestClient, tmp_repo, fake_vision,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    """Accepting a card changes the card set, so the semantic index follows."""
+    fake_vision.result = _recognition()
+    payload = _upload(client).json()
+    started: list[str] = []
+    monkeypatch.setattr(patch_apply, "start_reindex", lambda: started.append("reindex"))
+
+    accepted = client.post("/api/review", json={"path": payload["path"], "action": "accept"})
+
+    assert accepted.status_code == 200
+    assert started == ["reindex"]

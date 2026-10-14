@@ -170,6 +170,29 @@ def test_recognize_bytes_maps_a_valid_answer(monkeypatch: pytest.MonkeyPatch) ->
     assert content[1]["image_url"]["url"] == f"data:image/png;base64,{encoded}"
 
 
+@pytest.mark.parametrize(
+    "base_url",
+    ["https://openrouter.ai/api/v1/chat/completions", "https://openrouter.ai/api/v1/"],
+)
+def test_recognize_bytes_accepts_a_base_url_with_the_endpoint(
+    monkeypatch: pytest.MonkeyPatch, base_url: str
+) -> None:
+    """The configured base URL may carry the endpoint path or a trailing slash."""
+    monkeypatch.setattr(recognize, "dict_ok", lambda text, language: True)
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return _answer(_payload())
+
+    monkeypatch.setattr(config, "VISION_BASE_URL", base_url)
+    _use_transport(monkeypatch, handler)
+
+    _recognize()
+
+    assert seen == ["https://openrouter.ai/api/v1/chat/completions"]
+
+
 def test_recognize_bytes_strips_code_fences(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(recognize, "dict_ok", lambda text, language: True)
     fenced = f"```json\n{_payload()}\n```"
@@ -257,6 +280,35 @@ def test_recognize_bytes_reports_provider_status(
     assert excinfo.value.reason == reason
 
 
+def test_recognize_bytes_reports_the_provider_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The numeric status and the provider message survive for the journal."""
+    _use_transport(monkeypatch, lambda request: httpx.Response(
+        404, json={"error": {"message": "No endpoints found", "code": 404}}))
+
+    with pytest.raises(vision.VisionUnavailable) as excinfo:
+        _recognize()
+
+    assert excinfo.value.reason == "http_5xx"
+    assert excinfo.value.status == 404
+    assert excinfo.value.detail == "No endpoints found"
+
+
+def test_recognize_bytes_reports_a_non_json_error_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A login page instead of JSON still names its status; the text is collapsed."""
+    _use_transport(monkeypatch, lambda request: httpx.Response(
+        403, text="<html>\n  sign in\n</html>"))
+
+    with pytest.raises(vision.VisionUnavailable) as excinfo:
+        _recognize()
+
+    assert excinfo.value.status == 403
+    assert excinfo.value.detail == "<html> sign in </html>"
+
+
 def test_recognize_bytes_reports_timeout_and_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -314,3 +366,5 @@ def test_recognize_bytes_without_a_key_raises_no_token(
         _recognize()
 
     assert excinfo.value.reason == "no_token"
+    assert excinfo.value.status is None
+    assert excinfo.value.detail == ""

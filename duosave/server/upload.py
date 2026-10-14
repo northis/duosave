@@ -21,7 +21,7 @@ from PIL import Image, UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 
-from .. import config, db, patchfmt, recognize, store, sync, vision
+from .. import config, db, patch_apply, patchfmt, recognize, store, sync, vision
 from ..recognize import Recognition
 from .security import AdminError, actor, audit, require_csrf
 
@@ -55,16 +55,21 @@ async def api_upload(request: Request, _: None = Depends(require_csrf)) -> dict:
     if duplicate is not None:
         audit("upload", who, path=duplicate["path"], outcome="duplicate",
               status=duplicate["status"], recognizer=duplicate["recognizer"],
-              reason=duplicate["reason"], vision="", renamed=False)
+              reason=duplicate["reason"], vision="", vision_status="", vision_detail="",
+              renamed=False)
         return duplicate
 
     vision_reason = ""
+    vision_status = ""
+    vision_detail = ""
     recognition = None
     if vision.available():
         try:
             recognition = await vision.recognize_bytes(body, media_type)
         except vision.VisionUnavailable as exc:
             vision_reason = exc.reason
+            vision_status = str(exc.status) if exc.status is not None else ""
+            vision_detail = exc.detail
     else:
         vision_reason = "no_token"
 
@@ -87,11 +92,14 @@ async def api_upload(request: Request, _: None = Depends(require_csrf)) -> dict:
     except AdminError as exc:
         if exc.code == "busy":
             audit("upload", who, path=rel_path, outcome="busy", status="",
-                  recognizer="", reason="", vision="", renamed=renamed)
+                  recognizer="", reason="", vision="", vision_status="", vision_detail="",
+                  renamed=renamed)
         raise
+    if card_id is not None:
+        patch_apply.start_reindex()
     audit("upload", who, path=rel_path, outcome="stored", status=recognition.status,
           recognizer=recognizer, reason=recognition.reason, vision=vision_reason,
-          renamed=renamed)
+          vision_status=vision_status, vision_detail=vision_detail, renamed=renamed)
     return {
         "outcome": "stored",
         "path": rel_path,

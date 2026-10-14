@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .. import patch_apply
 from ..buildinfo import build_info
 from ..config import MEDIA_DIR, REPO, SOURCE_FOLDERS
 from ..db import (
@@ -177,6 +178,7 @@ def api_review_action(payload: ReviewAction):
         conn.commit()
     finally:
         conn.close()
+    patch_apply.start_reindex()
     return {"ok": True}
 
 
