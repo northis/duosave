@@ -303,19 +303,51 @@ Share-цель регистрируется **в момент установки
 
 На Android Chrome собирает WebAPK на сервере Google, а тот забирает манифест и иконки
 **без вашей сессии**. Если сайт целиком закрыт Cloudflare Access, сборка падает и Chrome
-пишет «This app cannot be installed». Лечится политикой **Bypass** в Cloudflare Access для
-трёх путей (это только манифест и иконки, ничего приватного):
+пишет «This app cannot be installed». Нужны две независимые правки — по одной на каждый
+слой, который требует вход.
+
+**1. Край (Cloudflare Access):** политика **Bypass** (Include = Everyone) для двух путей —
+приложения создаются как self-hosted с полем **Path** (селектора «Path» в политиках больше
+нет):
 
 ```
 /manifest.webmanifest
 /static/icons/*
-/static/favicon.svg
 ```
 
-Быстрая проверка причины: откройте `https://<хост>/manifest.webmanifest` в приватном окне —
-если вместо JSON показывается страница входа Cloudflare, сборка WebAPK тоже получит её.
-Без обхода остаётся ярлык («Добавить на главный экран»): сайт и кнопка загрузки работают, но
-шары в системном меню не будет.
+**2. Вход на хост (sitehub/Traefik):** если включена проверка Access-JWT на входе
+(`cf-access-verify@file`), Bypass-пути получат от неё `401 missing Cf-Access-Jwt-Assertion
+header` — токена у них нет. Публичные пути должны идти через роутер **без** этой проверки:
+
+```yaml
+http:
+  routers:
+    duosave:                      # основной роутер: middlewares: [cf-access-verify@file]
+      rule: "Host(`duosave.ваш-домен`)"
+      service: duosave
+      middlewares: [cf-access-verify@file]
+
+    duosave-pwa:                  # те же два пути, что в Bypass, и без проверки
+      rule: "Host(`duosave.ваш-домен`) && (Path(`/manifest.webmanifest`) || PathPrefix(`/static/icons/`))"
+      service: duosave
+      priority: 100
+```
+
+В глобальном режиме sitehub (`CF_ACCESS_VERIFY_GLOBAL=true`) исключений по путям быть не
+может — middleware висит на entrypoint и применяется ко всем роутерам: выключите флаг
+(`CF_ACCESS_VERIFY_GLOBAL=false`, затем `docker compose up -d`) и оставьте проверку меткой
+на приватных роутерах.
+
+Проверка после правок (обе команды должны вернуть `200`, а в `docker logs traefik` для
+манифеста — имя pwa-роутера):
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://<хост>/manifest.webmanifest
+curl -s -o /dev/null -w '%{http_code}\n' https://<хост>/static/icons/icon-192.png
+```
+
+Без этих правок остаётся ярлык («Добавить на главный экран»): сайт и кнопка загрузки
+работают, но шары в системном меню не будет.
 
 ### Приватность
 
