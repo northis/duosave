@@ -48,8 +48,11 @@ SOURCE_FOLDERS: dict[str, str] = {
     "screens_raw": "auto",    # legacy dump, kept for old setups; new images arrive via patches
 }
 
-LANGUAGES = ("pl", "es", "pt")
-LANGUAGE_NAMES = {"pl": "Polish", "es": "Spanish", "pt": "Portuguese", "unk": "Unknown"}
+# The main studied language comes first: ties in the heuristics favour it, the site opens
+# on it and it heads the language lists in the UI.
+DEFAULT_LANGUAGE = "pt"
+LANGUAGES = ("pt", "pl", "es")
+LANGUAGE_NAMES = {"pt": "Portuguese", "pl": "Polish", "es": "Spanish", "unk": "Unknown"}
 
 # Bump when recognition logic changes so cached results are re-computed.
 RECOGNIZER_VERSION = 1

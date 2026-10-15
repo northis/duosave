@@ -14,9 +14,9 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from .. import backup, config, patch_apply, patchfmt
+from .. import backup, cards, config, patch_apply, patchfmt
 from ..buildinfo import build_info
-from ..db import connect
+from ..db import connect, search_cards
 from .security import AdminError, actor, audit, forbid_cross_site, require_csrf, require_local
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -180,6 +180,43 @@ def api_patch_discard(patch_id: str, request: Request,
         raise AdminError(404, "not_found", "no such patch") from None
     audit("patch_discard", who, patch_id=patch_id)
     return Response(status_code=204)
+
+
+# ------------------------------------------------------------------------ cards
+
+
+@router.get("/api/admin/cards")
+def api_admin_cards(q: str = "", lang: str = "", limit: int = 20) -> dict:
+    """Card search for the delete panel: rejected cards stay visible here."""
+    conn = connect()
+    try:
+        items, total = search_cards(conn, query=q, lang=lang, limit=max(1, min(limit, 100)),
+                                    include_rejected=True)
+    finally:
+        conn.close()
+    return {"total": total, "items": items}
+
+
+@router.delete("/api/admin/cards/{card_id}")
+def api_card_delete(card_id: int, request: Request,
+                    _: None = Depends(require_csrf)) -> dict:
+    """Delete a card with its frames; a fresh share of the same image is processed again."""
+    reason = busy_reason()
+    if reason:
+        raise AdminError(409, "busy", reason)
+    who = actor(request)
+    conn = connect()
+    try:
+        try:
+            report = cards.delete_card(conn, card_id)
+        except cards.CardNotFound:
+            raise AdminError(404, "not_found", "no such card") from None
+    finally:
+        conn.close()
+    patch_apply.start_reindex()
+    audit("card_delete", who, card_id=card_id, files=len(report["removed"]),
+          missing=len(report["missing"]), kept=len(report["kept"]))
+    return report
 
 
 @router.get("/api/admin/known-hashes")

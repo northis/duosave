@@ -129,6 +129,7 @@ def tmp_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Simple
     screens.mkdir()
     monkeypatch.setattr(config, "REPO", root)
     monkeypatch.setattr(config, "DATA_DIR", data)
+    monkeypatch.setattr(config, "CACHE_DIR", data / "cache")
     monkeypatch.setattr(config, "MEDIA_DIR", data / "media")
     monkeypatch.setattr(config, "DROPS_MEDIA_DIR", data / "media" / "drops")
     monkeypatch.setattr(config, "PATCHES_DIR", data / "patches")

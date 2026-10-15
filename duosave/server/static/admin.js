@@ -4,9 +4,19 @@
 Object.assign(I18N.ru, {
   adm_patches: "Импорт патча",
   adm_backup: "Бэкап",
+  adm_cards: "Карточки",
   adm_busy: "Выполняется другая операция…",
   adm_error: "Ошибка",
   adm_confirm: "Подтвердить?",
+  cd_ph: "Поиск по оригиналу и переводу…",
+  cd_search: "Найти",
+  cd_delete: "Удалить",
+  cd_confirm: "Удалить карточку вместе с её картинками? Действие необратимо.",
+  cd_deleted: "Удалено: «{label}» (картинок: {n})",
+  cd_hint: "Удаляет карточку, её источники и исходные картинки (включая кроп Drops): ту же картинку можно загрузить заново и распознать ещё раз.",
+  cd_found: "Найдено карточек: {n}",
+  cd_col_card: "Карточка",
+  cd_col_app: "Источник",
   bk_db: "Скачать: только БД",
   bk_full: "Скачать: полный",
   bk_hint: "Восстановление — README, раздел «Бэкап и восстановление».",
@@ -44,9 +54,19 @@ Object.assign(I18N.ru, {
 Object.assign(I18N.en, {
   adm_patches: "Patch import",
   adm_backup: "Backup",
+  adm_cards: "Cards",
   adm_busy: "Another operation is in progress…",
   adm_error: "Error",
   adm_confirm: "Confirm?",
+  cd_ph: "Search by original and translation…",
+  cd_search: "Search",
+  cd_delete: "Delete",
+  cd_confirm: "Delete the card together with its images? This cannot be undone.",
+  cd_deleted: "Deleted “{label}” (images: {n})",
+  cd_hint: "Deletes the card, its sources and the source images (the Drops crop included): the same image can be uploaded and recognized again.",
+  cd_found: "Cards found: {n}",
+  cd_col_card: "Card",
+  cd_col_app: "Source",
   bk_db: "Download: DB only",
   bk_full: "Download: full",
   bk_hint: "Restore instructions — README, “Backup and restore”.",
@@ -335,3 +355,77 @@ const patchSection = {
   },
 };
 ADMIN_SECTIONS.push(patchSection);
+
+/* ---------------------------------- cards --------------------------------- */
+const cardsSection = {
+  query: "",
+  items: [],
+  total: 0,
+  note: "",
+  noteOk: true,
+  init() { this.search(""); },
+  render() { this.paint(); },
+
+  async search(query) {
+    this.query = (query || "").trim();
+    try {
+      const data = await adminFetch("/api/admin/cards?limit=20&q=" + encodeURIComponent(this.query));
+      this.items = data.items || [];
+      this.total = data.total || 0;
+      this.note = "";
+    } catch (err) {
+      this.items = [];
+      this.total = 0;
+      this.note = err.message;
+      this.noteOk = false;
+    }
+    this.paint();
+  },
+
+  async remove(cardId) {
+    const card = this.items.find((item) => item.id === cardId) || {};
+    if (!window.confirm(t("cd_confirm"))) return;
+    let note = "";
+    try {
+      const report = await adminFetch("/api/admin/cards/" + cardId, { method: "DELETE" });
+      note = t("cd_deleted").replace("{label}", card.original || String(cardId))
+        .replace("{n}", (report.removed || []).length);
+    } catch (err) {
+      window.alert(err.message);
+      return;
+    }
+    await this.search(this.query);
+    this.note = note;
+    this.noteOk = true;
+    this.paint();
+  },
+
+  paint() {
+    const body = document.getElementById("cards-body");
+    if (!body) return;
+    const rows = this.items.map((card) => `<tr>
+        <td><span class="badge lang">${esc(card.language)}</span></td>
+        <td>${esc(card.original)}<div class="muted">${esc(card.translation)}</div></td>
+        <td>${esc(card.app || "")} · ${esc(card.status || "")}</td>
+        <td><button class="btn bad" onclick="cardsSection.remove(${card.id})">${esc(t("cd_delete"))}</button></td>
+      </tr>`).join("");
+    const table = rows
+      ? `<table class="table"><thead><tr><th></th><th>${esc(t("cd_col_card"))}</th>
+           <th>${esc(t("cd_col_app"))}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      : "";
+    const found = this.items.length
+      ? `<p class="hint">${esc(t("cd_found").replace("{n}", this.total))}</p>` : "";
+    const note = this.note
+      ? `<p class="${this.noteOk ? "state-ok" : "state-bad"}">${esc(this.note)}</p>` : "";
+    body.innerHTML = `
+      <p class="row">
+        <input id="cards-q" type="search" data-i18n-ph="cd_ph" placeholder="${esc(t("cd_ph"))}"
+               value="${esc(this.query)}"
+               onkeydown="if (event.key === 'Enter') cardsSection.search(this.value)">
+        <button class="btn" onclick="cardsSection.search(document.getElementById('cards-q').value)">${esc(t("cd_search"))}</button>
+      </p>
+      <p class="hint">${esc(t("cd_hint"))}</p>
+      ${note}${found}${table}`;
+  },
+};
+ADMIN_SECTIONS.push(cardsSection);

@@ -87,12 +87,28 @@ def test_admin_panels_are_wired() -> None:
     html = (STATIC / "admin.html").read_text(encoding="utf-8")
     js = (STATIC / "admin.js").read_text(encoding="utf-8")
 
-    for panel in ("patch-body", "backup-body"):
+    for panel in ("patch-body", "backup-body", "cards-body"):
         assert f'id="{panel}"' in html
     assert "patchSection" in js
     assert "backupSection" in js
+    assert "cardsSection" in js
     assert "/api/admin/known-hashes" in js
     assert "/api/admin/patches" in js
+
+
+def test_admin_cards_panel_deletes_with_a_confirmation() -> None:
+    """The delete panel is a search over the cards and one destructive action per row."""
+    html = (STATIC / "admin.html").read_text(encoding="utf-8")
+    js = (STATIC / "admin.js").read_text(encoding="utf-8")
+
+    assert 'id="cards-panel"' in html
+    assert 'data-i18n="adm_cards"' in html
+    assert '"/api/admin/cards?limit=20&q="' in js
+    assert 'method: "DELETE"' in js
+    assert "window.confirm" in js
+    for key in ("adm_cards", "cd_ph", "cd_search", "cd_delete", "cd_confirm", "cd_deleted",
+                "cd_hint", "cd_found", "cd_col_card", "cd_col_app"):
+        assert js.count(key + ":") >= 2, f"{key} is missing from one of the languages"
 
 
 def test_admin_page_has_no_update_panel() -> None:

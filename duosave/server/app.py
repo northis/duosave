@@ -11,11 +11,12 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .. import patch_apply
+from .. import config, patch_apply
 from ..buildinfo import build_info
 from ..config import MEDIA_DIR, REPO, SOURCE_FOLDERS
 from ..db import (
     add_source,
+    card_by_key,
     connect,
     get_card,
     init_db,
@@ -124,12 +125,63 @@ def api_review(page: int = 0, limit: int = 40):
     return {"total": total, "items": items}
 
 
+@app.get("/api/languages")
+def api_languages() -> dict:
+    """Languages the UI offers: the main course first, with names for the review combobox."""
+    return {
+        "default": config.DEFAULT_LANGUAGE,
+        "languages": [
+            {"code": code, "name": config.LANGUAGE_NAMES.get(code, code)}
+            for code in config.LANGUAGES
+        ],
+    }
+
+
 class ReviewAction(BaseModel):
     path: str
     action: str  # accept | reject | edit
     original: str | None = None
     translation: str | None = None
     language: str | None = None
+
+
+def _review_language(value: str | None) -> str:
+    """The language picked in the review combobox; empty means "not chosen"."""
+    code = (value or "").strip()
+    if code and code not in config.LANGUAGES:
+        raise AdminError(400, "unknown_language",
+                         f"language must be one of {', '.join(config.LANGUAGES)}")
+    return code
+
+
+def _merge_into_existing(conn, card_id: int, *, language: str, original: str,
+                         translation: str, notes: str) -> int:
+    """Update a card in place, or merge it into the card that already owns the pair.
+
+    Editing can change the language, and the unique key (language, original, translation)
+    may already belong to another card: the sources move there and the emptied row is
+    dropped, so review never leaves a duplicate behind.
+    """
+    target = card_by_key(conn, language, original, translation)
+    if target is not None and int(target["id"]) != card_id:
+        target_id = int(target["id"])
+        conn.execute("UPDATE OR IGNORE sources SET card_id = ? WHERE card_id = ?",
+                     (target_id, card_id))
+        conn.execute("DELETE FROM sources WHERE card_id = ?", (card_id,))
+        _drop_empty_card(conn, card_id)
+        update_card(conn, target_id, status="manual", notes=notes)
+        return target_id
+    update_card(conn, card_id, language=language, original=original, translation=translation,
+                status="manual", notes=notes)
+    return card_id
+
+
+def _drop_empty_card(conn, card_id: int) -> None:
+    """Remove a card left without sources after its frames moved to another card."""
+    left = conn.execute("SELECT COUNT(*) AS n FROM sources WHERE card_id = ?",
+                        (card_id,)).fetchone()["n"]
+    if not left:
+        conn.execute("DELETE FROM cards WHERE id = ?", (card_id,))
 
 
 @app.post("/api/review")
@@ -143,31 +195,45 @@ def api_review_action(payload: ReviewAction):
         ).fetchone()
         if row is None:
             return JSONResponse({"error": "file not found"}, status_code=404)
+        language = _review_language(payload.language)
         if payload.action == "reject":
             set_file(conn, path=payload.path, sha256=row["sha256"] or "", size=0, mtime=0,
                      status="rejected", reason="rejected in review")
         elif payload.action == "accept":
             if row["card_id"] is not None:
-                update_card(conn, row["card_id"], status="manual", notes="accepted in review")
+                card_id = int(row["card_id"])
+                card = get_card(conn, card_id)
+                if language and language != card["language"]:
+                    card_id = _merge_into_existing(
+                        conn, card_id, language=language, original=card["original"],
+                        translation=card["translation"], notes="accepted in review")
+                else:
+                    update_card(conn, card_id, status="manual", notes="accepted in review")
             set_file(conn, path=payload.path, sha256=row["sha256"] or "", size=0, mtime=0,
                      status="reviewed", reason="accepted")
         elif payload.action == "edit":
             if not payload.original or not payload.translation:
                 return JSONResponse({"error": "original and translation required"}, status_code=400)
-            language = payload.language or "unk"
-            card_id = upsert_card(
-                conn,
-                language=language,
-                original=payload.original,
-                translation=payload.translation,
-                kind="sentence",
-                app=None,
-                screen_type=None,
-                status="manual",
-                notes="edited in review",
-                original_folded=fold_text(payload.original),
-                translation_folded=fold_text(payload.translation),
-            )
+            if row["card_id"] is not None:
+                card = get_card(conn, int(row["card_id"]))
+                card_id = _merge_into_existing(
+                    conn, int(row["card_id"]), language=language or card["language"],
+                    original=payload.original, translation=payload.translation,
+                    notes="edited in review")
+            else:
+                card_id = upsert_card(
+                    conn,
+                    language=language or "unk",
+                    original=payload.original,
+                    translation=payload.translation,
+                    kind="sentence",
+                    app=None,
+                    screen_type=None,
+                    status="manual",
+                    notes="edited in review",
+                    original_folded=fold_text(payload.original),
+                    translation_folded=fold_text(payload.translation),
+                )
             add_source(conn, card_id=card_id, path=payload.path, sha256=row["sha256"] or "",
                        app=None, screen_type=None, crop_path=None, agreement=None,
                        recognizer="manual")

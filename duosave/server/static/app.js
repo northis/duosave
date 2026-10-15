@@ -19,6 +19,7 @@ const I18N = {
     accept: "Принять", reject: "Отклонить", edit: "Изменить", save: "Сохранить", cancel: "Отмена",
     status_auto: "авто", status_review: "проверка", status_manual: "подтверждено",
     review_queue: "На проверке:", no_guess: "Пары не найдено — посмотрите скриншот",
+    lang_unknown: "— язык не определён", lang_label: "Язык карточки",
     path: "Путь:",
     upload_btn: "Загрузить картинку", upload_hint: "Перетащите картинку сюда или выберите файл",
     upload_busy: "Распознаю…", upload_card: "карточка: {original} — {translation}",
@@ -30,7 +31,7 @@ const I18N = {
     share_title: "Итог шары",
     share_counts: "Новых карточек: {new} · В проверке: {review} · Не карточка: {skip} · Дубликатов: {dup}",
     share_open_card: "Открыть карточку", share_to_review: "В «Проверку»",
-    share_to_search: "В поиск",
+    share_to_search: "В поиск", share_redirect: "Открываю главную…",
     share_sw_stale: "Приложение не обновилось, закройте и откройте его заново",
     share_empty: "В шаре не было картинок",
     build_title: "Duosave {v}, коммит {sha}", build_dirty: "локальные изменения",
@@ -52,6 +53,7 @@ const I18N = {
     accept: "Accept", reject: "Reject", edit: "Edit", save: "Save", cancel: "Cancel",
     status_auto: "auto", status_review: "review", status_manual: "verified",
     review_queue: "To review:", no_guess: "No pair found — check the screenshot",
+    lang_unknown: "— language unknown", lang_label: "Card language",
     path: "Path:",
     upload_btn: "Upload an image", upload_hint: "Drop an image here or choose a file",
     upload_busy: "Recognizing…", upload_card: "card: {original} — {translation}",
@@ -63,7 +65,7 @@ const I18N = {
     share_title: "Share result",
     share_counts: "New cards: {new} · To review: {review} · Not a card: {skip} · Duplicates: {dup}",
     share_open_card: "Open the card", share_to_review: "To Review",
-    share_to_search: "To search",
+    share_to_search: "To search", share_redirect: "Opening the main page…",
     share_sw_stale: "The app has not updated — close and reopen it",
     share_empty: "No images in the share",
     build_title: "Duosave {v}, commit {sha}", build_dirty: "local changes",
@@ -188,7 +190,9 @@ async function fetchJson(url) {
 }
 
 /* ------------------------------- search --------------------------------- */
-const state = { q: "", lang: "", app: "", sort: "new", mode: "hybrid", page: 0, total: 0, loaded: 0, card: 0 };
+/* The main studied language, mirroring config.DEFAULT_LANGUAGE: the site opens on it. */
+const DEFAULT_LANG = "pt";
+const state = { q: "", lang: DEFAULT_LANG, app: "", sort: "new", mode: "hybrid", page: 0, total: 0, loaded: 0, card: 0 };
 let reqSeq = 0;
 let searchTimer = null;
 let openCardId = null;
@@ -196,7 +200,8 @@ let openCardId = null;
 function readUrlState() {
   const p = new URLSearchParams(location.search);
   state.q = (p.get("q") || "").trim();
-  state.lang = p.get("lang") || "";
+  /* an explicit `lang=` (even empty: "all languages") wins over the default */
+  state.lang = p.has("lang") ? (p.get("lang") || "") : DEFAULT_LANG;
   state.app = p.get("app") || "";
   state.sort = p.get("sort") === "old" ? "old" : "new";
   const mode = p.get("mode");
@@ -209,7 +214,7 @@ function readUrlState() {
 function syncUrl(mode) {
   const p = new URLSearchParams();
   if (state.q) p.set("q", state.q);
-  if (state.lang) p.set("lang", state.lang);
+  if (state.lang !== DEFAULT_LANG) p.set("lang", state.lang);
   if (state.app) p.set("app", state.app);
   if (state.sort && state.sort !== "new") p.set("sort", state.sort);
   if (state.mode && state.mode !== "hybrid") p.set("mode", state.mode);
@@ -415,6 +420,26 @@ function closeModal() {
 /* ------------------------------- review --------------------------------- */
 let reviewPage = 0;
 let reviewSeq = 0;
+let languages = null; /* /api/languages: the combobox options, main language first */
+
+async function loadLanguages() {
+  try {
+    languages = await fetchJson("/api/languages");
+  } catch (err) {
+    languages = null; /* the combobox falls back to "unknown" only */
+  }
+}
+
+/* Options for the review combobox: the languages the site knows, detected one preselected. */
+function languageOptions(selected) {
+  const list = (languages && languages.languages) || [];
+  const options = [`<option value=""${selected ? "" : " selected"}>${esc(t("lang_unknown"))}</option>`];
+  for (const language of list) {
+    const mark = language.code === selected ? " selected" : "";
+    options.push(`<option value="${esc(language.code)}"${mark}>${esc(language.code.toUpperCase())} — ${esc(language.name)}</option>`);
+  }
+  return options.join("");
+}
 
 async function loadReview(reset) {
   const wrap = document.getElementById("review-list");
@@ -459,7 +484,7 @@ function initReviewPage() {
   const more = document.getElementById("more");
   if (more) more.addEventListener("click", () => { reviewPage += 1; loadReview(false); });
   applyI18n();
-  loadReview(true);
+  loadLanguages().then(() => loadReview(true));
 }
 
 function reviewMarkup(item) {
@@ -467,12 +492,17 @@ function reviewMarkup(item) {
   const guess = item.original
     ? `<div class="guess"><div class="o">${esc(item.original)}</div><div class="t">${esc(item.translation || "")}</div></div>`
     : `<div class="guess">${t("no_guess")}</div>`;
+  /* The combobox edits the language of an existing card; a frame with no guess has none. */
+  const picker = item.card_id
+    ? `<select class="lang-select" title="${esc(t("lang_label"))}">${languageOptions(item.language || "")}</select>`
+    : "";
   return `<div class="path">${t("path")} <a href="${sourceUrl(item.path)}" target="_blank">${esc(item.path)}</a>
       <span style="opacity:.6">· ${esc(item.reason || "")}</span></div>
     ${crop}${guess}
     <div class="row">
-      <button class="btn ok" onclick="reviewAction('${esc(item.path)}','accept')">${t("accept")}</button>
-      <button class="btn bad" onclick="reviewAction('${esc(item.path)}','reject')">${t("reject")}</button>
+      ${picker}
+      <button class="btn ok" onclick="reviewAction(this, '${esc(item.path)}', 'accept')">${t("accept")}</button>
+      <button class="btn bad" onclick="reviewAction(this, '${esc(item.path)}', 'reject')">${t("reject")}</button>
       <button class="btn" onclick="toggleEdit(this)">${t("edit")}</button>
     </div>
     <div class="edit-form">
@@ -488,17 +518,24 @@ function toggleEdit(btn) {
   const form = btn.closest(".review-item").querySelector(".edit-form");
   form.classList.toggle("open");
 }
-async function reviewAction(path, action) {
+/* The language combobox, when the item has one: it feeds both accept and edit. */
+function pickedLanguage(item) {
+  const picker = item.querySelector(".lang-select");
+  return picker ? picker.value : "";
+}
+async function reviewAction(btn, path, action) {
+  const language = pickedLanguage(btn.closest(".review-item"));
   await fetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path, action }) });
+    body: JSON.stringify({ path, action, language }) });
   loadReview(true);
 }
 async function editAction(btn, path) {
   const item = btn.closest(".review-item");
   const original = item.querySelector("#e-orig").value.trim();
   const translation = item.querySelector("#e-trans").value.trim();
+  const language = pickedLanguage(item);
   await fetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path, action: "edit", original, translation }) });
+    body: JSON.stringify({ path, action: "edit", original, translation, language }) });
   loadReview(true);
 }
 
@@ -631,6 +668,8 @@ function initUploadPanel() {
 /* -------------------------------- share ---------------------------------- */
 /* The share outcome page: counts and links come from the URL, never from the database. */
 const SHARE_COUNT_KEYS = ["new", "review", "skip", "dup"];
+const SHARE_REDIRECT_MS = 3000; /* the status stays visible briefly, then the main page opens */
+let shareTimer = null;
 
 function shareCount(params, key) {
   const value = parseInt(params.get(key) || "0", 10);
@@ -653,13 +692,20 @@ function renderShare() {
     open.href = "/?card=" + card;
     open.hidden = card === 0;
   }
-  const note = document.getElementById("share-note");
-  if (!note) return;
   const error = params.get("error") || "";
-  if (error === "sw") note.textContent = t("share_sw_stale");
-  else if (error === "empty") note.textContent = t("share_empty");
-  else if (error) note.textContent = uploadErrorText({ error });
-  note.hidden = !error;
+  const note = document.getElementById("share-note");
+  if (note) {
+    if (error === "sw") note.textContent = t("share_sw_stale");
+    else if (error === "empty") note.textContent = t("share_empty");
+    else if (error) note.textContent = uploadErrorText({ error });
+    note.hidden = !error;
+  }
+  /* A clean share opens the main page by itself; an error keeps this page in place. */
+  clearTimeout(shareTimer);
+  const redirect = document.getElementById("share-redirect");
+  if (redirect) redirect.hidden = !!error;
+  if (error) return;
+  shareTimer = setTimeout(() => location.replace("/"), SHARE_REDIRECT_MS);
 }
 
 function initSharePage() {

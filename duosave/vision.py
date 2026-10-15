@@ -35,19 +35,21 @@ Answer with one JSON object and nothing else — no markdown, no commentary.
 Keys:
   app: "duolingo_card" | "duolingo_app" | "drops" | "other"
   screen_type: short snake_case label of the screen, or null
-  language: "pl" | "es" | "pt" — the language being studied, or null
+  language: "pt" | "pl" | "es" — the language being studied, or null
   pairs: array of {"original": str, "translation": str, "kind": "sentence" | "word"}
 Rules:
   - original is the text in the studied language exactly as it appears on screen;
     translation is the English text exactly as it appears on screen.
   - Copy what is on screen. Never translate, complete or invent a side yourself: if the
     English side is not visible, leave that pair out and return an empty pairs array.
+  - Always decide the studied language of the original side: read its words and letters,
+    and on a share card read the flag (green and yellow is Portuguese, red and white is
+    Polish, red and yellow is Spanish). Use null only when the studied language is none
+    of pt, pl and es.
   - At most 10 pairs; prefer the pair the screen is about.
   - Chats, leaderboards, shops, settings, streak screens and banks are not vocabulary
     screens: return [] and set app to "other". A lesson, review or story screen with no
     visible English side keeps its real app value and also returns [].
-  - If the studied language is not pl, es or pt, still fill the other keys and set
-    language to null.
   - duolingo_card = square share card with a flag, one phrase and its translation;
     duolingo_app = Duolingo app screenshot; drops = Drops app screenshot."""
 
@@ -119,7 +121,8 @@ def build_payload(data: bytes, media_type: str) -> dict:
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Extract the vocabulary pairs from this frame."},
+                    {"type": "text", "text": "Extract the vocabulary pairs and the studied "
+                                               "language from this frame."},
                     {"type": "image_url", "image_url": {"url": image_url}},
                 ],
             },

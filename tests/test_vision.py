@@ -163,8 +163,12 @@ def test_recognize_bytes_maps_a_valid_answer(monkeypatch: pytest.MonkeyPatch) ->
     assert system == vision.prompt()
     assert "one JSON object and nothing else" in system
     assert "Never translate" in system
+    assert 'language: "pt" | "pl" | "es"' in system
+    assert "Always decide the studied language" in system
     content = body["messages"][1]["content"]
-    assert content[0] == {"type": "text", "text": "Extract the vocabulary pairs from this frame."}
+    assert content[0] == {"type": "text",
+                          "text": "Extract the vocabulary pairs and the studied language "
+                                  "from this frame."}
     assert content[1]["type"] == "image_url"
     encoded = base64.b64encode(b"png-bytes").decode("ascii")
     assert content[1]["image_url"]["url"] == f"data:image/png;base64,{encoded}"

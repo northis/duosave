@@ -210,9 +210,11 @@ def set_file(
 
 
 def search_cards(conn: sqlite3.Connection, query: str = "", lang: str = "", app: str = "",
-                 limit: int = 60, offset: int = 0, sort: str = "new") -> tuple[list[dict], int]:
+                 limit: int = 60, offset: int = 0, sort: str = "new",
+                 include_rejected: bool = False) -> tuple[list[dict], int]:
     clauses, params = [], []
-    clauses.append("c.status != 'rejected'")
+    if not include_rejected:
+        clauses.append("c.status != 'rejected'")
     if lang:
         clauses.append("c.language = ?")
         params.append(lang)
