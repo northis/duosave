@@ -128,7 +128,7 @@ function renderBuildInfo() {
     version.textContent = "v" + buildInfo.version;
     version.title = title;
     /* the version badge opens the release tag; the commit badge keeps the commit page */
-    if (buildInfo.repo_url) version.href = buildInfo.repo_url + "/releases/tag/v" + buildInfo.version;
+    if (buildInfo.repo_url) version.href = buildInfo.tag_url || (buildInfo.repo_url + "/tree/v" + buildInfo.version);
   }
   if (commit) {
     if (buildInfo.short) {
@@ -184,8 +184,44 @@ function setBusy(container, busy) { if (container) container.classList.toggle("l
 function hide(el) { if (el) el.style.display = "none"; }
 function show(el) { if (el) el.style.display = "block"; }
 
+/* Profiling: every API call is logged to the console with its total time, the server share
+   (Server-Timing) and the server request id (#N in the `http start/done #N` server log).
+   A request still pending after PERF_SLOW_MS is reported while it waits, so a hang shows up. */
+const PERF_SLOW_MS = 5000;
+function perfLog(level, ...args) {
+  (console[level] || console.log).call(console, "[duosave]", ...args);
+}
+function serverTiming(res) {
+  const header = res && res.headers ? res.headers.get("server-timing") || "" : "";
+  const match = /dur=([\d.]+)/.exec(header);
+  return match ? Math.round(parseFloat(match[1])) : null;
+}
+async function timedFetch(url, opts) {
+  const method = (opts && opts.method) || "GET";
+  const started = performance.now();
+  const label = `${method} ${url}`;
+  perfLog("debug", "→", label);
+  const slow = setInterval(() => {
+    perfLog("warn", "… still waiting", label, Math.round(performance.now() - started) + " ms");
+  }, PERF_SLOW_MS);
+  try {
+    const res = await fetch(url, opts);
+    const ms = Math.round(performance.now() - started);
+    const server = serverTiming(res);
+    const id = res.headers.get("x-duosave-request");
+    perfLog(ms >= 1000 ? "warn" : "debug", "←", label, res.status, ms + " ms",
+      server !== null ? `(server headers ${server} ms)` : "", id ? "#" + id : "");
+    return res;
+  } catch (err) {
+    perfLog("error", "✗", label, Math.round(performance.now() - started) + " ms", err);
+    throw err;
+  } finally {
+    clearInterval(slow);
+  }
+}
+
 async function fetchJson(url) {
-  const res = await fetch(url);
+  const res = await timedFetch(url);
   if (!res.ok) throw new Error("HTTP " + res.status);
   return res.json();
 }
@@ -526,7 +562,7 @@ function pickedLanguage(item) {
 }
 async function reviewAction(btn, path, action) {
   const language = pickedLanguage(btn.closest(".review-item"));
-  await fetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" },
+  await timedFetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path, action, language }) });
   loadReview(true);
 }
@@ -535,7 +571,7 @@ async function editAction(btn, path) {
   const original = item.querySelector("#e-orig").value.trim();
   const translation = item.querySelector("#e-trans").value.trim();
   const language = pickedLanguage(item);
-  await fetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" },
+  await timedFetch("/api/review", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path, action: "edit", original, translation, language }) });
   loadReview(true);
 }
@@ -612,7 +648,7 @@ async function uploadFile(file) {
     uploadText(row, t("upload_busy"), "", "");
   }
   try {
-    const res = await fetch("/api/upload", { method: "POST", headers: { "X-Duosave-Request": "1" }, body: file });
+    const res = await timedFetch("/api/upload", { method: "POST", headers: { "X-Duosave-Request": "1" }, body: file });
     const payload = await res.json().catch(() => null);
     if (!res.ok) {
       if (row) row.className = "upload-row error";

@@ -38,7 +38,7 @@ def test_index_and_review_have_the_upload_panel() -> None:
 def test_app_js_sends_files_one_by_one() -> None:
     js = (STATIC / "app.js").read_text(encoding="utf-8")
 
-    assert 'fetch("/api/upload"' in js
+    assert 'timedFetch("/api/upload"' in js
     assert '"X-Duosave-Request"' in js
     assert "for (const file of files) await " in js
 

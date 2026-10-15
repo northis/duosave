@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import mimetypes
+import sqlite3
 import threading
 from collections.abc import Iterator
 from datetime import datetime, timezone
@@ -17,6 +18,8 @@ from starlette.concurrency import run_in_threadpool
 from .. import backup, cards, config, patch_apply, patchfmt
 from ..buildinfo import build_info
 from ..db import connect, search_cards
+from ..perf import timed
+from .pages import page
 from .security import AdminError, actor, audit, forbid_cross_site, require_csrf, require_local
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -38,8 +41,8 @@ def busy_reason() -> str | None:
 
 
 @router.get("/admin")
-def admin_page() -> FileResponse:
-    return FileResponse(STATIC / "admin.html")
+def admin_page() -> HTMLResponse:
+    return page("admin.html")
 
 
 @router.get("/api/admin/backup/estimate")
@@ -95,7 +98,7 @@ async def api_patch_upload(request: Request, _: None = Depends(require_csrf)) ->
     size = 0
     who = actor(request)
     try:
-        with tmp.open("wb") as target:
+        with timed("patch.receive", declared=declared) as info, tmp.open("wb") as target:
             async for chunk in request.stream():
                 size += len(chunk)
                 if size > limit:
@@ -103,7 +106,9 @@ async def api_patch_upload(request: Request, _: None = Depends(require_csrf)) ->
                                      f"patch is larger than {config.PATCH_MAX_MB} MB",
                                      limit_mb=config.PATCH_MAX_MB)
                 target.write(chunk)
-        payload = await run_in_threadpool(patch_apply.stage_file, tmp, actor=who)
+            info["bytes"] = size
+        with timed("patch.stage", bytes=size):
+            payload = await run_in_threadpool(patch_apply.stage_file, tmp, actor=who)
     except patchfmt.PatchError as exc:
         raise AdminError(422, "invalid_patch", "patch does not match the format",
                          errors=exc.errors[:patchfmt.MAX_ERRORS]) from exc
@@ -155,7 +160,8 @@ def api_patch_apply(patch_id: str, request: Request,
         if FULL_BACKUP_LOCK.locked():
             raise AdminError(409, "busy", "full backup in progress")
         try:
-            report = patch_apply.apply(patch_id, actor=who)
+            with timed("patch.apply", patch=patch_id):
+                report = patch_apply.apply(patch_id, actor=who)
         except patch_apply.AlreadyApplied:
             raise AdminError(409, "already_applied", "patch is already applied") from None
         except patch_apply.PatchNotFound:
@@ -208,9 +214,14 @@ def api_card_delete(card_id: int, request: Request,
     conn = connect()
     try:
         try:
-            report = cards.delete_card(conn, card_id)
+            with timed("card.delete", card=card_id) as info:
+                report = cards.delete_card(conn, card_id)
+                info["files"] = len(report["removed"])
         except cards.CardNotFound:
             raise AdminError(404, "not_found", "no such card") from None
+        except sqlite3.OperationalError as exc:
+            conn.rollback()
+            raise AdminError(503, "busy", f"database is busy, retry: {exc}") from exc
     finally:
         conn.close()
     patch_apply.start_reindex()
@@ -223,7 +234,9 @@ def api_card_delete(card_id: int, request: Request,
 def api_known_hashes(_: None = Depends(forbid_cross_site)) -> PlainTextResponse:
     conn = connect()
     try:
-        hashes = patch_apply.known_hashes(conn)
+        with timed("known_hashes") as info:
+            hashes = patch_apply.known_hashes(conn)
+            info["count"] = len(hashes)
     finally:
         conn.close()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")

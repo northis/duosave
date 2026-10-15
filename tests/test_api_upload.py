@@ -485,3 +485,35 @@ def test_review_action_starts_a_background_reindex(client: TestClient, tmp_repo,
 
     assert accepted.status_code == 200
     assert started == ["reindex"]
+
+
+# ------------------------------------------------------------------ idempotency
+
+
+def test_same_phrase_with_another_image_replaces_the_frame(client: TestClient, tmp_repo,
+                                                           tmp_db, fake_vision) -> None:
+    fake_vision.result = _recognition()
+    first = _upload(client, png_bytes(color=(1, 2, 3))).json()
+    second = _upload(client, png_bytes(color=(4, 5, 6))).json()
+
+    assert second["outcome"] == "stored"
+    assert second["card_id"] == first["card_id"]
+    paths = [row["path"] for row in tmp_db.execute(
+        "SELECT path FROM sources WHERE card_id = ?", (first["card_id"],))]
+    assert paths == [second["path"]]
+    assert _row(tmp_db, "files", first["path"]) is None
+    assert not (config.REPO / first["path"]).exists()
+    assert (config.REPO / second["path"]).exists()
+
+
+def test_same_image_again_moves_the_date_forward(client: TestClient, tmp_repo, tmp_db,
+                                                 fake_vision) -> None:
+    fake_vision.result = _recognition()
+    first = _upload(client).json()
+    tmp_db.execute("UPDATE files SET created_ts = 1 WHERE path = ?", (first["path"],))
+    tmp_db.commit()
+
+    again = _upload(client).json()
+
+    assert again["outcome"] == "duplicate"
+    assert _row(tmp_db, "files", first["path"])["created_ts"] > 1

@@ -129,4 +129,6 @@ def build_info() -> dict:
         "commit_date": commit_date,
         "dirty": bool(_git("status", "--porcelain")) if commit else False,
         "repo_url": repo_url,
+        "tag": f"v{__version__}",
+        "tag_url": f"{repo_url}/tree/v{__version__}",
     }

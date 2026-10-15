@@ -14,7 +14,8 @@ from uuid import uuid4
 
 from PIL import Image
 
-from . import backup, config, crops, patchfmt, store
+from . import backup, cards, config, crops, patchfmt, store
+from .perf import timed
 from .db import (
     add_source,
     all_file_hashes,
@@ -87,13 +88,16 @@ def stage(chunks: Iterable[bytes], *, actor: str | None = None) -> dict:
 
 def stage_file(path: Path, *, actor: str | None = None) -> dict:
     """Validate an already-written upload, move it into staged/ and store the preview."""
-    validated = patchfmt.validate_archive(path, max_bytes=max_upload_bytes())
+    with timed("stage.validate", size=path.stat().st_size):
+        validated = patchfmt.validate_archive(path, max_bytes=max_upload_bytes())
+    patch_id = validated.manifest.patch_id
     staged = staged_dir()
     staged.mkdir(parents=True, exist_ok=True)
-    os.replace(path, staged / f"{validated.manifest.patch_id}.zip")
+    os.replace(path, staged / f"{patch_id}.zip")
     conn = connect()
     try:
-        payload = preview(conn, validated, uploaded_by=actor)
+        with timed("stage.preview", patch=patch_id, records=len(validated.records)):
+            payload = preview(conn, validated, uploaded_by=actor)
     finally:
         conn.close()
     (staged / f"{validated.manifest.patch_id}.json").write_text(
@@ -170,12 +174,16 @@ def _write_image(archive: Path, record: patchfmt.Record, target: Path) -> None:
     os.replace(partial, target)
 
 
+def _created_ts(record: patchfmt.Record) -> int:
+    return int(record.created_ts or file_created_ts(Path(record.file), fallback=time.time()))
+
+
 def _apply_record(conn, record: patchfmt.Record, item: dict, patch_id: str,
-                  report: dict) -> None:
+                  report: dict, doomed: list) -> None:
     target_path = item["target"]
     target = config.REPO / target_path
     stat = target.stat()
-    created_ts = record.created_ts or file_created_ts(Path(record.file), fallback=time.time())
+    created_ts = _created_ts(record)
     crop_path = None
     if record.app == "drops":
         with Image.open(target) as image:
@@ -211,6 +219,8 @@ def _apply_record(conn, record: patchfmt.Record, item: dict, patch_id: str,
         add_source(conn, card_id=card_id, path=target_path, sha256=record.sha256,
                       app=record.app, screen_type=record.screen_type, crop_path=crop_path,
                       agreement=None, recognizer="agent")
+        # the same phrase imported again: this frame replaces the card's older ones
+        doomed.extend(cards.supersede_sources(conn, card_id, target_path))
     set_file(conn, path=target_path, sha256=record.sha256, size=stat.st_size,
                 mtime=stat.st_mtime_ns, status="reviewed" if record.action == "set" else "review",
                 reason=reason, created_ts=created_ts)
@@ -220,40 +230,53 @@ def apply(patch_id: str, *, actor: str | None = None) -> dict:
     """Apply a staged patch: recompute the plan, snapshot the DB, one transaction."""
     conn = connect()
     written: list[Path] = []
+    doomed: list = []
     try:
         if get_patch(conn, patch_id) is not None:
             raise AlreadyApplied(patch_id)
         staged_zip = staged_dir() / f"{patch_id}.zip"
         if not staged_zip.exists():
             raise PatchNotFound(patch_id)
-        validated = patchfmt.validate_archive(staged_zip)
-        items, summary = _classify(conn, validated.records)
-        snapshot = backup.snapshot(f"pre-patch-{patch_id}", prefix="pre-patch-")
+        with timed("apply.validate", patch=patch_id):
+            validated = patchfmt.validate_archive(staged_zip)
+        with timed("apply.classify", patch=patch_id, records=len(validated.records)):
+            items, summary = _classify(conn, validated.records)
+        with timed("apply.snapshot", patch=patch_id):
+            snapshot = backup.snapshot(f"pre-patch-{patch_id}", prefix="pre-patch-")
         records = {record.file: record for record in validated.records}
         report = {"files_written": summary["new_files"], "duplicates": summary["duplicates"],
                   "renamed": [], "cards_new": 0, "cards_existing": 0,
-                  "set": summary["set"], "review": summary["review"]}
+                  "set": summary["set"], "review": summary["review"],
+                  "touched": 0, "superseded": []}
         try:
-            for item in items:
-                if item["outcome"] == "duplicate":
-                    continue
-                record = records[item["file"]]
-                _write_image(staged_zip, record, config.REPO / item["target"])
-                written.append(config.REPO / item["target"])
-                if item["outcome"] == "renamed":
-                    report["renamed"].append({"from": record.file, "to": item["target"]})
-            conn.execute("BEGIN IMMEDIATE")
-            try:
+            with timed("apply.write_images", patch=patch_id, files=summary["new_files"]):
                 for item in items:
                     if item["outcome"] == "duplicate":
                         continue
-                    _apply_record(conn, records[item["file"]], item, patch_id, report)
-                insert_patch(conn, patch_id=patch_id,
-                                archive_sha256=validated.archive_sha256,
-                                format_version=validated.manifest.format_version,
-                                generator=validated.manifest.generator.model_dump(),
-                                report=report, applied_by=actor)
-                conn.commit()
+                    record = records[item["file"]]
+                    _write_image(staged_zip, record, config.REPO / item["target"])
+                    written.append(config.REPO / item["target"])
+                    if item["outcome"] == "renamed":
+                        report["renamed"].append({"from": record.file, "to": item["target"]})
+            with timed("apply.db_lock", patch=patch_id):
+                conn.execute("BEGIN IMMEDIATE")
+            try:
+                with timed("apply.db_write", patch=patch_id):
+                    for item in items:
+                        record = records[item["file"]]
+                        if item["outcome"] == "duplicate":
+                            # the same image again: only its date moves forward
+                            cards.touch_file(conn, item["existing_path"], _created_ts(record))
+                            report["touched"] += 1
+                            continue
+                        _apply_record(conn, record, item, patch_id, report, doomed)
+                    report["superseded"] = [source["path"] for source in doomed]
+                    insert_patch(conn, patch_id=patch_id,
+                                    archive_sha256=validated.archive_sha256,
+                                    format_version=validated.manifest.format_version,
+                                    generator=validated.manifest.generator.model_dump(),
+                                    report=report, applied_by=actor)
+                    conn.commit()
             except BaseException:
                 conn.rollback()
                 raise
@@ -263,6 +286,7 @@ def apply(patch_id: str, *, actor: str | None = None) -> dict:
             if isinstance(exc, (AlreadyApplied, PatchNotFound)):
                 raise
             raise PatchApplyError(str(exc)) from exc
+        cards.remove_superseded(doomed)
         applied = applied_dir()
         applied.mkdir(parents=True, exist_ok=True)
         os.replace(staged_zip, applied / staged_zip.name)
@@ -397,8 +421,9 @@ def _run_reindex() -> None:
 
     conn = connect()
     try:
-        result = reindex(conn)
-        conn.commit()
+        with timed("reindex"):
+            result = reindex(conn)
+            conn.commit()
     except SemanticUnavailable as exc:
         _set_reindex("unavailable", detail=exc.reason)
     except Exception as exc:  # noqa: BLE001 - background job must not kill the server

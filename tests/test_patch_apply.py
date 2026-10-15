@@ -449,3 +449,39 @@ def test_known_hashes(tmp_repo) -> None:
     tmp_repo.conn.commit()
 
     assert patch_apply.known_hashes(tmp_repo.conn) == ["a" * 64, "b" * 64]
+
+
+# ------------------------------------------------------------------ idempotency
+
+
+def _apply_one(tmp_path: Path, name: str, record: dict, image: bytes, patch_id: str) -> dict:
+    path = patchkit.build_patch(tmp_path / f"{patch_id}.zip", [record], {record["file"]: image},
+                                patch_id=patch_id)
+    payload = patch_apply.stage(_chunks(path), actor=None)
+    return patch_apply.apply(payload["patch_id"])
+
+
+def test_reimport_of_the_same_phrase_replaces_the_image(tmp_repo, tmp_path: Path) -> None:
+    later = "screens/Screenshot_20261011-101010.png"
+    _apply_one(tmp_path, "a", _set_record(), PNG, "20261012T103105Z-3f9c2a1b-p1")
+    result = _apply_one(tmp_path, "b", patchkit.make_record(
+        file=later, sha256=patchfmt.sha256_bytes(PNG2), created_ts=1760176810),
+        PNG2, "20261012T103106Z-3f9c2a1c-p1")
+
+    conn = tmp_repo.conn
+    assert conn.execute("SELECT COUNT(*) FROM cards").fetchone()[0] == 1
+    assert [row["path"] for row in conn.execute("SELECT path FROM sources")] == [later]
+    assert conn.execute("SELECT * FROM files WHERE path = ?", (SCREEN,)).fetchone() is None
+    assert not (tmp_repo.root / SCREEN).exists()
+    assert result["report"]["superseded"] == [SCREEN]
+
+
+def test_reimport_of_the_same_image_moves_the_date(tmp_repo, tmp_path: Path) -> None:
+    _apply_one(tmp_path, "a", _set_record(created_ts=1760090410), PNG,
+               "20261012T103105Z-3f9c2a1b-p1")
+    result = _apply_one(tmp_path, "b", _set_record(created_ts=1760999999), PNG,
+                        "20261012T103106Z-3f9c2a1c-p1")
+
+    row = tmp_repo.conn.execute("SELECT * FROM files WHERE path = ?", (SCREEN,)).fetchone()
+    assert row["created_ts"] == 1760999999
+    assert result["report"]["touched"] == 1

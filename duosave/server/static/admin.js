@@ -51,6 +51,15 @@ Object.assign(I18N.ru, {
   pt_when: "Когда",
   pt_who: "Кто",
   pt_files: "Файлов",
+  adm_network: "Сеть: запрос не дошёл до сервера",
+  adm_sec: "с",
+  pt_known_busy: "Готовим список известных картинок…",
+  pt_known_done: "Список скачан ({size})",
+  pt_checking: "проверка и разбор на сервере…",
+  pt_applying: "Применяется патч {id}…",
+  pt_applied: "Патч {id} применён: файлов {files}, обновлено дат {touched}, заменено картинок {replaced}",
+  cd_deleting: "удаление…",
+  cd_missing: "Карточки уже нет",
 });
 Object.assign(I18N.en, {
   adm_patches: "Patch import",
@@ -102,6 +111,15 @@ Object.assign(I18N.en, {
   pt_when: "When",
   pt_who: "Who",
   pt_files: "Files",
+  adm_network: "Network: the request did not reach the server",
+  adm_sec: "s",
+  pt_known_busy: "Preparing the known-images list…",
+  pt_known_done: "List downloaded ({size})",
+  pt_checking: "validating and parsing on the server…",
+  pt_applying: "Applying patch {id}…",
+  pt_applied: "Patch {id} applied: files {files}, dates updated {touched}, images replaced {replaced}",
+  cd_deleting: "deleting…",
+  cd_missing: "The card is already gone",
 });
 
 /* fetch with the CSRF header on mutations; throws Error with .status/.payload on failures */
@@ -110,7 +128,7 @@ async function adminFetch(url, opts) {
   if (options.method && options.method !== "GET") {
     options.headers = Object.assign({}, options.headers, { "X-Duosave-Request": "1" });
   }
-  const res = await fetch(url, options);
+  const res = await timedFetch(url, options);
   const text = await res.text();
   let payload = null;
   try { payload = text ? JSON.parse(text) : null; } catch (err) { payload = null; }
@@ -121,6 +139,86 @@ async function adminFetch(url, opts) {
     throw error;
   }
   return payload;
+}
+
+/* POST a file with upload progress (fetch has none): onProgress(sent, total), then the
+   "server is processing" phase starts when the last byte is sent. Logged like timedFetch. */
+function adminUpload(url, file, contentType, onProgress, onSent) {
+  return new Promise((resolve, reject) => {
+    const started = performance.now();
+    const label = "POST " + url + " (" + fmtSize(file.size) + ")";
+    perfLog("debug", "→", label);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.setRequestHeader("X-Duosave-Request", "1");
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.upload.onprogress = (event) => onProgress && onProgress(event.loaded, event.total || file.size);
+    xhr.upload.onload = () => {
+      perfLog("debug", "⇡ sent", label, Math.round(performance.now() - started) + " ms");
+      if (onSent) onSent();
+    };
+    xhr.onload = () => {
+      const ms = Math.round(performance.now() - started);
+      const timing = /dur=([\d.]+)/.exec(xhr.getResponseHeader("server-timing") || "");
+      perfLog(ms >= 1000 ? "warn" : "debug", "←", label, xhr.status, ms + " ms",
+        timing ? `(server ${Math.round(parseFloat(timing[1]))} ms)` : "",
+        "#" + (xhr.getResponseHeader("x-duosave-request") || "?"));
+      let payload = null;
+      try { payload = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch (err) { payload = null; }
+      if (xhr.status >= 200 && xhr.status < 300) { resolve(payload); return; }
+      const error = new Error((payload && (payload.detail || payload.error)) || "HTTP " + xhr.status);
+      error.status = xhr.status;
+      error.payload = payload;
+      reject(error);
+    };
+    xhr.onerror = () => {
+      perfLog("error", "✗", label, Math.round(performance.now() - started) + " ms");
+      reject(new Error(t("adm_network")));
+    };
+    xhr.send(file);
+  });
+}
+
+/* Download through fetch so the page can show progress and errors instead of a silent link. */
+async function adminDownload(url, fallbackName, onProgress) {
+  const res = await timedFetch(url);
+  if (!res.ok) {
+    let detail = "HTTP " + res.status;
+    try { const data = await res.json(); detail = data.detail || data.error || detail; } catch (err) { /* text */ }
+    throw new Error(detail);
+  }
+  const total = parseInt(res.headers.get("content-length") || "0", 10);
+  const reader = res.body.getReader();
+  const parts = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value);
+    received += value.length;
+    if (onProgress) onProgress(received, total);
+  }
+  const match = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") || "");
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob(parts));
+  link.download = match ? match[1] : fallbackName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+  return received;
+}
+
+/* Seconds since `since`, for "working… 12 s" labels; a ticker repaints busy sections. */
+function elapsed(since) { return Math.max(0, Math.round((Date.now() - since) / 1000)) + " " + t("adm_sec"); }
+let busyTicker = null;
+function tickWhileBusy() {
+  if (busyTicker) return;
+  busyTicker = setInterval(() => {
+    const busy = ADMIN_SECTIONS.filter((section) => section.isBusy && section.isBusy());
+    busy.forEach((section) => section.paint());
+    if (!busy.length) { clearInterval(busyTicker); busyTicker = null; }
+  }, 1000);
 }
 
 const ADMIN_SECTIONS = [];
@@ -219,13 +317,15 @@ const patchSection = {
   },
 
   async upload(file) {
-    const entry = { name: file.name, status: "uploading", payload: null, errors: [] };
+    const entry = { name: file.name, status: "uploading", payload: null, errors: [],
+                    sent: 0, total: file.size, since: Date.now() };
     this.uploads.unshift(entry);
     this.paint();
+    tickWhileBusy();
     try {
-      entry.payload = await adminFetch("/api/admin/patches", {
-        method: "POST", body: file, headers: { "Content-Type": "application/zip" },
-      });
+      entry.payload = await adminUpload("/api/admin/patches", file, "application/zip",
+        (sent, total) => { entry.sent = sent; entry.total = total; this.paint(); },
+        () => { entry.status = "checking"; entry.since = Date.now(); this.paint(); });
       entry.status = "preview";
     } catch (err) {
       entry.status = "error";
@@ -233,6 +333,30 @@ const patchSection = {
     }
     this.paint();
     this.refresh();
+  },
+
+  isBusy() {
+    return !!this.applying || !!this.known
+      || this.uploads.some((entry) => entry.status === "uploading" || entry.status === "checking");
+  },
+
+  async downloadKnown() {
+    if (this.known) return;
+    this.known = { since: Date.now(), received: 0, error: "", done: "" };
+    this.paint();
+    tickWhileBusy();
+    let note = "";
+    let error = "";
+    try {
+      const size = await adminDownload("/api/admin/known-hashes", "duosave-known-hashes.txt",
+        (received) => { this.known.received = received; });
+      note = t("pt_known_done").replace("{size}", fmtSize(size));
+    } catch (err) {
+      error = err.message;
+    }
+    this.known = null;
+    this.knownNote = { text: error || note, ok: !error };
+    this.paint();
   },
 
   async open(patchId) {
@@ -247,13 +371,21 @@ const patchSection = {
   },
 
   async apply(patchId) {
-    if (!window.confirm(t("pt_apply_confirm"))) return;
+    if (this.applying || !window.confirm(t("pt_apply_confirm"))) return;
+    this.applying = { patchId, since: Date.now() };
+    this.paint();
+    tickWhileBusy();
     try {
-      await adminFetch("/api/admin/patches/" + patchId + "/apply", { method: "POST" });
+      const result = await adminFetch("/api/admin/patches/" + patchId + "/apply", { method: "POST" });
       this.uploads = this.uploads.filter((item) => !item.payload || item.payload.patch_id !== patchId);
+      const report = (result && result.report) || {};
+      this.applyNote = { ok: true, text: t("pt_applied").replace("{id}", patchId)
+        .replace("{files}", report.files_written || 0).replace("{touched}", report.touched || 0)
+        .replace("{replaced}", (report.superseded || []).length) };
     } catch (err) {
-      window.alert(err.message);
+      this.applyNote = { ok: false, text: patchId + ": " + err.message };
     }
+    this.applying = null;
     this.refresh();
   },
 
@@ -276,6 +408,11 @@ const patchSection = {
       return;
     }
     const chunks = [this.controlsMarkup()];
+    if (this.applying) {
+      chunks.push(`<p class="state-warn"><span class="loader"></span>${esc(t("pt_applying").replace("{id}", this.applying.patchId))} · ${esc(elapsed(this.applying.since))}</p>`);
+    } else if (this.applyNote) {
+      chunks.push(`<p class="${this.applyNote.ok ? "state-ok" : "state-bad"}">${esc(this.applyNote.text)}</p>`);
+    }
     chunks.push(...this.uploads.map((entry) => this.uploadMarkup(entry)));
     if (this.reindex) chunks.push(this.reindexMarkup());
     if (this.staged.length) chunks.push(this.stagedMarkup());
@@ -284,18 +421,28 @@ const patchSection = {
   },
 
   controlsMarkup() {
+    const known = this.known
+      ? `<p class="hint"><span class="loader"></span>${esc(t("pt_known_busy"))} · ${esc(elapsed(this.known.since))}${this.known.received ? " · " + esc(fmtSize(this.known.received)) : ""}</p>`
+      : (this.knownNote ? `<p class="${this.knownNote.ok ? "state-ok" : "state-bad"}">${esc(this.knownNote.text)}</p>` : "");
     return `<p class="row">
-        <a class="btn" href="/api/admin/known-hashes">${esc(t("pt_known"))}</a>
+        <button class="btn" ${this.known ? "disabled" : ""} onclick="patchSection.downloadKnown()">${esc(t("pt_known"))}</button>
         <label class="btn upload-pick" for="patch-file">${esc(t("pt_pick"))}</label>
         <input id="patch-file" type="file" accept=".zip" multiple hidden
                onchange="patchSection.uploadAll(this)">
       </p>
+      ${known}
       <p class="hint">${esc(t("pt_known_hint"))}</p>`;
   },
 
   uploadMarkup(entry) {
     if (entry.status === "uploading") {
-      return `<div class="patch-card"><div class="path">${esc(entry.name)} · ${esc(t("pt_uploading"))}</div></div>`;
+      const pct = entry.total ? Math.min(100, Math.round((entry.sent / entry.total) * 100)) : 0;
+      return `<div class="patch-card"><div class="path"><span class="loader"></span>${esc(entry.name)} · ${esc(t("pt_uploading"))} ${pct}% (${esc(fmtSize(entry.sent))} / ${esc(fmtSize(entry.total))}) · ${esc(elapsed(entry.since))}</div>
+        <div class="progress"><span style="width:${pct}%"></span></div></div>`;
+    }
+    if (entry.status === "checking") {
+      return `<div class="patch-card"><div class="path"><span class="loader"></span>${esc(entry.name)} · ${esc(t("pt_checking"))} · ${esc(elapsed(entry.since))}</div>
+        <div class="progress indeterminate"><span></span></div></div>`;
     }
     if (entry.status === "error") {
       const items = entry.errors.map((error) => `<li>${esc(error)}</li>`).join("");
@@ -312,7 +459,7 @@ const patchSection = {
     const rows = (payload.items || []).map((item) => this.itemRow(payload.patch_id, item)).join("");
     const already = payload.already_applied
       ? `<p class="state-warn">${esc(t("pt_already"))}</p>` : "";
-    const disabled = payload.already_applied ? "disabled" : "";
+    const disabled = payload.already_applied || this.applying ? "disabled" : "";
     return `<div class="patch-card">
       <div class="path">${esc(entry.name)} · <strong>${esc(payload.patch_id)}</strong></div>
       ${already}
@@ -401,32 +548,56 @@ const cardsSection = {
   },
 
   async remove(cardId) {
-    const card = this.items.find((item) => item.id === cardId) || {};
-    if (!window.confirm(t("cd_confirm"))) return;
-    let note = "";
+    const card = this.items.find((item) => item.id === cardId);
+    if (!card || card.deleting || !window.confirm(t("cd_confirm"))) return;
+    card.deleting = true;
+    card.error = "";
+    this.paintRow(card);
     try {
       const report = await adminFetch("/api/admin/cards/" + cardId, { method: "DELETE" });
-      note = t("cd_deleted").replace("{label}", card.original || String(cardId))
+      this.items = this.items.filter((item) => item.id !== cardId);
+      this.total = Math.max(0, this.total - 1);
+      this.note = t("cd_deleted").replace("{label}", card.original || String(cardId))
         .replace("{n}", (report.removed || []).length);
+      this.noteOk = true;
+      const row = document.getElementById("card-row-" + cardId);
+      if (row) {
+        row.classList.add("gone");
+        setTimeout(() => this.paint(), 250);
+      } else {
+        this.paint();
+      }
     } catch (err) {
-      window.alert(err.message);
-      return;
+      card.deleting = false;
+      card.error = err.status === 404 ? t("cd_missing") : err.message;
+      if (err.status === 404) this.items = this.items.filter((item) => item.id !== cardId);
+      this.paint();
     }
-    await this.search(this.query);
-    this.note = note;
-    this.noteOk = true;
-    this.paint();
+  },
+
+  rowMarkup(card) {
+    const action = card.deleting
+      ? `<span class="muted"><span class="loader"></span>${esc(t("cd_deleting"))}</span>`
+      : `<button class="btn bad" onclick="cardsSection.remove(${card.id})">${esc(t("cd_delete"))}</button>`;
+    const error = card.error ? `<div class="state-bad">${esc(card.error)}</div>` : "";
+    return `<tr id="card-row-${card.id}" class="${card.deleting ? "deleting" : ""}">
+        <td><span class="badge lang">${esc(card.language)}</span></td>
+        <td>${esc(card.original)}<div class="muted">${esc(card.translation)}</div></td>
+        <td>${esc(card.app || "")} · ${esc(card.status || "")}</td>
+        <td>${action}${error}</td>
+      </tr>`;
+  },
+
+  paintRow(card) {
+    const row = document.getElementById("card-row-" + card.id);
+    if (row) row.outerHTML = this.rowMarkup(card);
+    else this.paint();
   },
 
   paint() {
     const body = document.getElementById("cards-body");
     if (!body) return;
-    const rows = this.items.map((card) => `<tr>
-        <td><span class="badge lang">${esc(card.language)}</span></td>
-        <td>${esc(card.original)}<div class="muted">${esc(card.translation)}</div></td>
-        <td>${esc(card.app || "")} · ${esc(card.status || "")}</td>
-        <td><button class="btn bad" onclick="cardsSection.remove(${card.id})">${esc(t("cd_delete"))}</button></td>
-      </tr>`).join("");
+    const rows = this.items.map((card) => this.rowMarkup(card)).join("");
     const table = rows
       ? `<table class="table"><thead><tr><th></th><th>${esc(t("cd_col_card"))}</th>
            <th>${esc(t("cd_col_app"))}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`

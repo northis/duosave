@@ -59,6 +59,38 @@ def delete_card(conn: sqlite3.Connection, card_id: int) -> dict:
     }
 
 
+def supersede_sources(conn: sqlite3.Connection, card_id: int, keep_path: str) -> list[sqlite3.Row]:
+    """Make `keep_path` the only frame of the card: a re-import of the same phrase wins.
+
+    Older source rows of the card go away; their `files` rows go too unless another card
+    still uses the frame. Returns the rows whose files must be removed with
+    `remove_superseded` after the caller commits.
+    """
+    old = conn.execute(
+        "SELECT path, sha256, crop_path FROM sources WHERE card_id = ? AND path != ?",
+        (card_id, keep_path),
+    ).fetchall()
+    doomed = []
+    for source in old:
+        conn.execute("DELETE FROM sources WHERE card_id = ? AND path = ?", (card_id, source["path"]))
+        if _still_referenced(conn, source["path"]):
+            continue
+        conn.execute("DELETE FROM files WHERE path = ?", (source["path"],))
+        doomed.append(source)
+    return doomed
+
+
+def remove_superseded(doomed: list[sqlite3.Row]) -> list[str]:
+    """Remove the frames returned by `supersede_sources` (after commit); returns their paths."""
+    return [source["path"] for source in doomed if _remove_files(source) == "removed"]
+
+
+def touch_file(conn: sqlite3.Connection, path: str, created_ts: int) -> None:
+    """A known frame was imported again: move its date (and so its card's) forward."""
+    conn.execute("UPDATE files SET created_ts = ?, last_seen = datetime('now') WHERE path = ?",
+                 (int(created_ts), path))
+
+
 def _remove_files(source: sqlite3.Row) -> str:
     """Drop one source's frame, crop and cache; returns removed/missing/kept."""
     _unlink(_inside_repo(source["crop_path"]))

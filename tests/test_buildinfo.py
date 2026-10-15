@@ -21,7 +21,7 @@ def clear_build_info_cache():
 
 
 def test_version_is_2_9_0() -> None:
-    assert __version__ == "2.9.0"
+    assert __version__ == "2.10.0"
 
 
 @pytest.mark.parametrize(
@@ -143,6 +143,8 @@ def test_without_git_and_metadata_only_version_is_known(
         "commit_date": None,
         "dirty": False,
         "repo_url": "https://github.com/northis/duosave",
+        "tag": f"v{__version__}",
+        "tag_url": f"https://github.com/northis/duosave/tree/v{__version__}",
     }
 
 
@@ -186,6 +188,7 @@ def test_api_version_endpoint(tmp_db: sqlite3.Connection) -> None:
     assert data["version"] == __version__
     assert set(data) == {
         "version", "commit", "short", "commit_url", "commit_date", "dirty", "repo_url",
+        "tag", "tag_url",
     }
     assert data["repo_url"] == "https://github.com/northis/duosave"
 
@@ -195,7 +198,8 @@ def test_ui_version_badge_links_to_the_release_tag() -> None:
     static = Path(__file__).resolve().parents[1] / "duosave" / "server" / "static"
     js = (static / "app.js").read_text(encoding="utf-8")
 
-    assert '"/releases/tag/v" + buildInfo.version' in js
+    assert "buildInfo.tag_url" in js
+    assert '"/tree/v" + buildInfo.version' in js
     assert "buildInfo.commit_url" in js
 
 

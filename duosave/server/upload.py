@@ -12,17 +12,20 @@ from __future__ import annotations
 import hashlib
 import io
 import sqlite3
+import time
 import warnings
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from PIL import Image, UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 
-from .. import config, db, patch_apply, patchfmt, recognize, store, sync, vision
+from .. import cards, config, db, patch_apply, patchfmt, recognize, store, sync, vision
+from ..perf import timed
 from ..recognize import Recognition
+from .pages import page
 from .security import AdminError, actor, audit, require_csrf
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -45,13 +48,15 @@ async def api_upload(request: Request, _: None = Depends(require_csrf)) -> dict:
     if int(declared) > config.VISION_MAX_MB * 1024 * 1024:
         raise AdminError(413, "too_large", f"image is larger than {config.VISION_MAX_MB} MB",
                          limit_mb=config.VISION_MAX_MB)
-    body = await request.body()
+    with timed("upload.read", declared=declared):
+        body = await request.body()
     _validate_body(request.headers, body)
     image_format, media_type, size = _check_image(body)
     sha256 = hashlib.sha256(body).hexdigest()
     who = actor(request)
 
-    duplicate = await run_in_threadpool(_duplicate, sha256)
+    with timed("upload.duplicate_check", sha=sha256[:12]):
+        duplicate = await run_in_threadpool(_duplicate, sha256)
     if duplicate is not None:
         audit("upload", who, path=duplicate["path"], outcome="duplicate",
               status=duplicate["status"], recognizer=duplicate["recognizer"],
@@ -65,7 +70,8 @@ async def api_upload(request: Request, _: None = Depends(require_csrf)) -> dict:
     recognition = None
     if vision.available():
         try:
-            recognition = await vision.recognize_bytes(body, media_type)
+            with timed("upload.vision", sha=sha256[:12]):
+                recognition = await vision.recognize_bytes(body, media_type)
         except vision.VisionUnavailable as exc:
             vision_reason = exc.reason
             vision_status = str(exc.status) if exc.status is not None else ""
@@ -77,8 +83,9 @@ async def api_upload(request: Request, _: None = Depends(require_csrf)) -> dict:
         folder = _folder_for(None, size)
         rel_path, renamed = await run_in_threadpool(
             _place_image, folder, _name_for(sha256, image_format), body, sha256)
-        recognition, _cache = await run_in_threadpool(
-            recognize.recognize_image, config.REPO / rel_path, config.SOURCE_FOLDERS[folder])
+        with timed("upload.ocr", sha=sha256[:12]):
+            recognition, _cache = await run_in_threadpool(
+                recognize.recognize_image, config.REPO / rel_path, config.SOURCE_FOLDERS[folder])
         recognizer = "ocr"
     else:
         folder = _folder_for(recognition.app, size)
@@ -87,8 +94,9 @@ async def api_upload(request: Request, _: None = Depends(require_csrf)) -> dict:
         recognizer = "vision"
 
     try:
-        card_id = await run_in_threadpool(
-            _store, rel_path, config.REPO / rel_path, sha256, recognition, recognizer)
+        with timed("upload.store", path=rel_path):
+            card_id = await run_in_threadpool(
+                _store, rel_path, config.REPO / rel_path, sha256, recognition, recognizer)
     except AdminError as exc:
         if exc.code == "busy":
             audit("upload", who, path=rel_path, outcome="busy", status="",
@@ -117,9 +125,9 @@ async def api_upload(request: Request, _: None = Depends(require_csrf)) -> dict:
 
 
 @router.get("/share")
-def share_page() -> FileResponse:
+def share_page() -> HTMLResponse:
     """The share outcome page: everything it shows comes from the URL, not the database."""
-    return FileResponse(STATIC / "share.html")
+    return page("share.html")
 
 
 @router.post("/share")
@@ -184,6 +192,11 @@ def _duplicate(sha256: str) -> dict | None:
         if row is None:
             return None
         path = row["path"]
+        try:
+            cards.touch_file(conn, path, int(time.time()))
+            conn.commit()
+        except sqlite3.OperationalError:
+            conn.rollback()  # the date bump is cosmetic: never fail a duplicate on a busy DB
         source = conn.execute(
             "SELECT app, screen_type, card_id FROM sources WHERE path = ? LIMIT 1", (path,)
         ).fetchone()
@@ -228,15 +241,20 @@ def _store(rel_path: str, path: Path, sha256: str, recognition: Recognition,
             sync.store_recognition(conn, rel_path, path, sha256, recognition.to_cache(),
                                    recognizer=recognizer)
             card_id = None
+            doomed = []
             if recognition.usable and recognition.pairs:
                 card = db.card_by_key(conn, recognition.language or "unk",
                                       recognition.pairs[0].original,
                                       recognition.pairs[0].translation)
                 card_id = int(card["id"]) if card is not None else None
+                if card_id is not None:
+                    # the same phrase again: the new frame replaces the older ones
+                    doomed = cards.supersede_sources(conn, card_id, rel_path)
             conn.commit()
         except sqlite3.OperationalError as exc:
             conn.rollback()
             raise AdminError(503, "busy", "database is busy, retry the upload") from exc
     finally:
         conn.close()
+    cards.remove_superseded(doomed)
     return card_id

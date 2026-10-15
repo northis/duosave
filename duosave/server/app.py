@@ -7,12 +7,13 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .. import config, patch_apply
 from ..buildinfo import build_info
+from ..perf import PerfMiddleware
 from ..config import MEDIA_DIR, REPO, SOURCE_FOLDERS
 from ..db import (
     add_source,
@@ -30,6 +31,7 @@ from ..semantic import hybrid_search
 from ..text import fold_text
 from .admin import router as admin_router
 from .security import AdminError, admin_error_handler, is_local_admin
+from .pages import page
 from .upload import router as upload_router
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -59,13 +61,13 @@ for _folder in SOURCE_FOLDERS:
 
 
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(STATIC / "index.html")
+def index() -> HTMLResponse:
+    return page("index.html")
 
 
 @app.get("/review")
-def review_page() -> FileResponse:
-    return FileResponse(STATIC / "review.html")
+def review_page() -> HTMLResponse:
+    return page("review.html")
 
 
 # Browsers ask for /favicon.ico by convention (and keep asking from cache when the page already
@@ -271,6 +273,7 @@ def api_session(request: Request) -> JSONResponse:
     )
 
 
+app.add_middleware(PerfMiddleware)
 app.add_exception_handler(AdminError, admin_error_handler)
 app.include_router(admin_router)
 app.include_router(upload_router)
