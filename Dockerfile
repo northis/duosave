@@ -43,7 +43,8 @@ RUN mkdir -p data pictures screens screens_raw
 # 8765 - site; 8766 - maintenance (published on the local network only).
 EXPOSE 8765 8766
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+# Liveness probe (GET /api/version): every 5 minutes, it is only for docker ps status.
+HEALTHCHECK --interval=5m --timeout=5s --start-period=30s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/version', timeout=3)"
 
 CMD ["python", "-m", "duosave", "serve"]

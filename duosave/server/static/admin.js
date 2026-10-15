@@ -221,6 +221,7 @@ function tickWhileBusy() {
   }, 1000);
 }
 
+const CARD_DELETE_TIMEOUT_MS = 20000;
 const ADMIN_SECTIONS = [];
 
 function renderAdmin() {
@@ -547,6 +548,23 @@ const cardsSection = {
     this.paint();
   },
 
+  /* A delete that got no answer is retried once; 404 on the retry means the first one worked. */
+  async deleteRequest(cardId) {
+    const url = "/api/admin/cards/" + cardId;
+    try {
+      return await adminFetch(url, { method: "DELETE", timeoutMs: CARD_DELETE_TIMEOUT_MS });
+    } catch (err) {
+      if (!err.timeout) throw err;
+      perfLog("warn", "retrying", "DELETE " + url);
+      try {
+        return await adminFetch(url, { method: "DELETE", timeoutMs: CARD_DELETE_TIMEOUT_MS });
+      } catch (retryErr) {
+        if (retryErr.status === 404) return { removed: [] };
+        throw retryErr;
+      }
+    }
+  },
+
   async remove(cardId) {
     const card = this.items.find((item) => item.id === cardId);
     if (!card || card.deleting || !window.confirm(t("cd_confirm"))) return;
@@ -554,7 +572,7 @@ const cardsSection = {
     card.error = "";
     this.paintRow(card);
     try {
-      const report = await adminFetch("/api/admin/cards/" + cardId, { method: "DELETE" });
+      const report = await this.deleteRequest(cardId);
       this.items = this.items.filter((item) => item.id !== cardId);
       this.total = Math.max(0, this.total - 1);
       this.note = t("cd_deleted").replace("{label}", card.original || String(cardId))

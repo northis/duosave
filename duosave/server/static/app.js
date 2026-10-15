@@ -35,6 +35,7 @@ const I18N = {
     share_sw_stale: "Приложение не обновилось, закройте и откройте его заново",
     share_empty: "В шаре не было картинок",
     build_title: "Duosave {v}, коммит {sha}", build_dirty: "локальные изменения",
+    req_timeout: "Сервер не ответил за {s} с: запрос, скорее всего, не дошёл до него",
   },
   en: {
     nav_cards: "Cards", nav_review: "Review", nav_admin: "Maintenance",
@@ -69,6 +70,7 @@ const I18N = {
     share_sw_stale: "The app has not updated — close and reopen it",
     share_empty: "No images in the share",
     build_title: "Duosave {v}, commit {sha}", build_dirty: "local changes",
+    req_timeout: "No answer from the server in {s} s: the request most likely never reached it",
   },
 };
 let lang = localStorage.getItem("duosave_lang") || "ru";
@@ -196,16 +198,28 @@ function serverTiming(res) {
   const match = /dur=([\d.]+)/.exec(header);
   return match ? Math.round(parseFloat(match[1])) : null;
 }
+/* In-flight requests of this page: browsers open at most 6 HTTP/1.1 connections per origin,
+   so a 7th request waits in the browser and never reaches the server. */
+const inflight = new Set();
 async function timedFetch(url, opts) {
-  const method = (opts && opts.method) || "GET";
+  const options = Object.assign({}, opts || {});
+  const method = options.method || "GET";
+  const timeoutMs = options.timeoutMs || 0;
+  delete options.timeoutMs;
+  const controller = timeoutMs ? new AbortController() : null;
+  if (controller) options.signal = controller.signal;
+  const abortTimer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   const started = performance.now();
   const label = `${method} ${url}`;
-  perfLog("debug", "→", label);
+  const key = label + " @" + Math.round(started);
+  inflight.add(key);
+  perfLog("debug", "→", label, `(in flight: ${inflight.size})`);
   const slow = setInterval(() => {
-    perfLog("warn", "… still waiting", label, Math.round(performance.now() - started) + " ms");
+    perfLog("warn", "… still waiting", label, Math.round(performance.now() - started) + " ms",
+      `in flight: ${inflight.size}`, Array.from(inflight));
   }, PERF_SLOW_MS);
   try {
-    const res = await fetch(url, opts);
+    const res = await fetch(url, options);
     const ms = Math.round(performance.now() - started);
     const server = serverTiming(res);
     const id = res.headers.get("x-duosave-request");
@@ -214,9 +228,16 @@ async function timedFetch(url, opts) {
     return res;
   } catch (err) {
     perfLog("error", "✗", label, Math.round(performance.now() - started) + " ms", err);
+    if (err && err.name === "AbortError") {
+      const timeout = new Error(t("req_timeout").replace("{s}", Math.round(timeoutMs / 1000)));
+      timeout.timeout = true;
+      throw timeout;
+    }
     throw err;
   } finally {
+    inflight.delete(key);
     clearInterval(slow);
+    if (abortTimer) clearTimeout(abortTimer);
   }
 }
 
