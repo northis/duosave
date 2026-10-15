@@ -22,6 +22,12 @@
     powershell -ExecutionPolicy Bypass -File deploy\windows\update.ps1
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File deploy\windows\update.ps1 -Rollback
+.NOTES
+    Keep this file ASCII-only. Windows PowerShell 5.1 decodes a BOM-less script with the
+    system codepage, so a UTF-8 em dash (E2 80 94) becomes three characters whose last one
+    is a smart quote; PowerShell accepts smart quotes as string delimiters, the string ends
+    early and the rest of the line is parsed - and run - as commands (a "(see AGENTS.md)"
+    in a warning once ran "see AGENTS.md" and aborted the update).
 #>
 [CmdletBinding()]
 param(
@@ -179,7 +185,9 @@ try {
     }
 
     Write-Step "Fetching origin/$Branch"
-    Invoke-Native -Command "git" -Arguments @("fetch", "--prune", "origin", $Branch)
+    # --tags: a fetch with an explicit refspec does not follow tags, and the release tag
+    # must land in the working copy so the version check below can see it.
+    Invoke-Native -Command "git" -Arguments @("fetch", "--prune", "--tags", "origin", $Branch)
 
     $current = Invoke-Native -Command "git" -Arguments @("symbolic-ref", "--short", "HEAD") -Capture
     if ($current -ne $Branch) {
@@ -199,13 +207,13 @@ try {
     $tags = @((Invoke-Native -Command "git" -Arguments @("tag", "--points-at", $target) -Capture) `
             -split "`n" | ForEach-Object { $_.Trim() })
     if ($tags -notcontains "v$version") {
-        Write-Warning "commit $short is not tagged v$version — releases are tagged and pushed (see AGENTS.md)"
+        Write-Warning "commit $short is not tagged v$version - releases are tagged and pushed (see AGENTS.md)"
     }
 
     Write-Step "Checking the running container"
     $deployed = Get-ContainerCommit
     if (-not $Force -and $deployed -and $deployed.StartsWith($short)) {
-        Write-Host "Already running $short (v$version) — nothing to do. Use -Force to rebuild." -ForegroundColor Green
+        Write-Host "Already running $short (v$version) - nothing to do. Use -Force to rebuild." -ForegroundColor Green
         exit 0
     }
 

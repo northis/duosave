@@ -166,7 +166,8 @@ cd <рабочая копия>
 powershell -ExecutionPolicy Bypass -File deploy\windows\update.ps1
 ```
 
-Что делает скрипт: `git fetch` → проверка ветки (`master`) → `git merge --ff-only` → снимок
+Что делает скрипт: `git fetch --prune --tags` (тег релиза стягивается вместе с веткой) →
+проверка ветки (`master`) → `git merge --ff-only` → снимок
 БД `pre-update-*.db` → сборка образа **из чистого worktree** целевого коммита (ваши
 незакоммиченные правки в образ не попадают) → `docker compose up -d --no-build` → проверка
 здоровья внутри контейнера (он должен сообщить новый коммит через `/api/version`) →
@@ -182,6 +183,9 @@ powershell -ExecutionPolicy Bypass -File deploy\windows\update.ps1
 - скрипт никогда не выполняет `git reset`/`clean`/`stash`/`checkout` в рабочей копии;
 - скрипт предупредит, если у выкатываемого коммита нет тега `vX.Y.Z` — версии и теги
   описаны в `AGENTS.md`, раздел «Versioning»;
+- сам скрипт — только ASCII: Windows PowerShell 5.1 читает файл без BOM в системной
+  кодировке, а типографское тире (`—`, UTF-8) превращается в «умную кавычку», которая
+  закрывает строку и ломает разбор (подробности — в `.NOTES` самого скрипта);
 - вручную то же самое: `git pull` + `docker compose up -d --build` (коммит вшивается из
   `HEAD` той копии, из которой собирается образ).
 

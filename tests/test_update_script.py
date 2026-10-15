@@ -22,12 +22,39 @@ def test_the_self_update_daemon_is_gone() -> None:
 
 
 def test_script_fast_forwards_and_never_rewrites_the_working_copy() -> None:
-    assert '"fetch", "--prune", "origin", $Branch' in SCRIPT
+    # --tags: a fetch with an explicit refspec does not follow tags, and the release tag
+    # must land locally for the version check below (see test_script_fetches_release_tags).
+    assert '"fetch", "--prune", "--tags", "origin", $Branch' in SCRIPT
     assert '"merge", "--ff-only"' in SCRIPT
     assert 'Set-StrictMode -Version Latest' in SCRIPT
     assert '$ErrorActionPreference = "Stop"' in SCRIPT
     for destructive in ('"reset"', '"clean"', '"stash"', '"checkout"'):
         assert destructive not in SCRIPT, destructive
+
+
+def test_script_fetches_release_tags() -> None:
+    """`git fetch <remote> <branch>` updates origin/<branch> but follows no tags: without
+    --tags the release tag never reaches the working copy, so the version check warns on
+    every release (and the operator sees a tag that was never pulled)."""
+    fetch = next(line for line in SCRIPT.splitlines() if '"fetch"' in line)
+
+    assert '"--tags"' in fetch
+    assert '"tag", "--points-at", $target' in SCRIPT
+
+
+def test_powershell_scripts_stay_ascii_only() -> None:
+    """Windows PowerShell 5.1 decodes a BOM-less script with the system codepage.
+
+    A UTF-8 em dash (E2 80 94) becomes three characters whose last one is a smart quote
+    (U+201D); PowerShell accepts smart quotes as string delimiters, so the string ends
+    early and the rest of the line is parsed and run as commands: the warning text
+    "(see AGENTS.md)" once ran a command named `see` and aborted the update right after
+    the fast-forward. A BOM would fix the decoding, an ASCII-only file cannot break.
+    """
+    for path in sorted(REPO.rglob("*.ps1")):
+        if ".git" in path.parts:
+            continue
+        assert path.read_bytes().isascii(), f"{path} must stay ASCII-only"
 
 
 def test_script_builds_from_a_clean_worktree_with_baked_metadata() -> None:
