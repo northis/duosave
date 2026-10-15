@@ -21,6 +21,7 @@ Object.assign(I18N.ru, {
   bk_full: "Скачать: полный",
   bk_hint: "Восстановление — README, раздел «Бэкап и восстановление».",
   pt_known: "Скачать список известных картинок",
+  pt_pick: "Выбрать патч (zip)",
   pt_known_hint: "Положите файл в outbox/known-hashes.txt клона на машине агента — scan пропустит эти картинки. Патчи загружаются по одному (zip).",
   pt_uploading: "загрузка…",
   pt_apply: "Применить",
@@ -71,6 +72,7 @@ Object.assign(I18N.en, {
   bk_full: "Download: full",
   bk_hint: "Restore instructions — README, “Backup and restore”.",
   pt_known: "Download the known-images list",
+  pt_pick: "Choose a patch (zip)",
   pt_known_hint: "Put the file into outbox/known-hashes.txt of the agent clone — scan will skip those images. Upload patches one zip at a time.",
   pt_uploading: "uploading…",
   pt_apply: "Apply",
@@ -147,19 +149,26 @@ function fmtSize(bytes) {
 /* --------------------------------- backup -------------------------------- */
 const backupSection = {
   estimate: null,
-  init() { this.refresh(); },
+  loading: true,
+  init() { this.paint(); this.refresh(); },
   render() { this.paint(); },
   async refresh() {
+    this.loading = true;
     try {
       this.estimate = await adminFetch("/api/admin/backup/estimate");
     } catch (err) {
       this.estimate = null;
     }
+    this.loading = false;
     this.paint();
   },
   paint() {
     const body = document.getElementById("backup-body");
     if (!body) return;
+    if (this.loading && this.estimate === null) {
+      body.innerHTML = `<p class="hint"><span class="loader"></span>${esc(t("loading"))}</p>`;
+      return;
+    }
     const size = (value) => (value == null ? "" : " (~" + fmtSize(value) + ")");
     body.innerHTML = `
       <p class="row">
@@ -180,7 +189,8 @@ const patchSection = {
   applied: [],
   reindex: null,
   timer: null,
-  init() { this.refresh(); },
+  loadedOnce: false,
+  init() { this.paint(); this.refresh(); },
   render() { this.paint(); },
 
   async refresh() {
@@ -189,6 +199,7 @@ const patchSection = {
       this.staged = data.staged || [];
       this.applied = data.applied || [];
       this.reindex = data.reindex || null;
+      this.loadedOnce = true;
     } catch (err) { /* keep the current view */ }
     this.paint();
     this.schedulePoll();
@@ -260,6 +271,10 @@ const patchSection = {
   paint() {
     const body = document.getElementById("patch-body");
     if (!body) return;
+    if (!this.loadedOnce && !this.uploads.length) {
+      body.innerHTML = `<p class="hint"><span class="loader"></span>${esc(t("loading"))}</p>`;
+      return;
+    }
     const chunks = [this.controlsMarkup()];
     chunks.push(...this.uploads.map((entry) => this.uploadMarkup(entry)));
     if (this.reindex) chunks.push(this.reindexMarkup());
@@ -271,7 +286,8 @@ const patchSection = {
   controlsMarkup() {
     return `<p class="row">
         <a class="btn" href="/api/admin/known-hashes">${esc(t("pt_known"))}</a>
-        <input id="patch-file" type="file" accept=".zip" multiple
+        <label class="btn upload-pick" for="patch-file">${esc(t("pt_pick"))}</label>
+        <input id="patch-file" type="file" accept=".zip" multiple hidden
                onchange="patchSection.uploadAll(this)">
       </p>
       <p class="hint">${esc(t("pt_known_hint"))}</p>`;
@@ -363,7 +379,8 @@ const cardsSection = {
   total: 0,
   note: "",
   noteOk: true,
-  init() { this.search(""); },
+  loadedOnce: false,
+  init() { this.paint(); this.search(""); },
   render() { this.paint(); },
 
   async search(query) {
@@ -373,6 +390,7 @@ const cardsSection = {
       this.items = data.items || [];
       this.total = data.total || 0;
       this.note = "";
+      this.loadedOnce = true;
     } catch (err) {
       this.items = [];
       this.total = 0;
@@ -417,6 +435,7 @@ const cardsSection = {
       ? `<p class="hint">${esc(t("cd_found").replace("{n}", this.total))}</p>` : "";
     const note = this.note
       ? `<p class="${this.noteOk ? "state-ok" : "state-bad"}">${esc(this.note)}</p>` : "";
+    const loading = this.loadedOnce ? "" : `<p class="hint"><span class="loader"></span>${esc(t("loading"))}</p>`;
     body.innerHTML = `
       <p class="row">
         <input id="cards-q" type="search" data-i18n-ph="cd_ph" placeholder="${esc(t("cd_ph"))}"
@@ -425,7 +444,7 @@ const cardsSection = {
         <button class="btn" onclick="cardsSection.search(document.getElementById('cards-q').value)">${esc(t("cd_search"))}</button>
       </p>
       <p class="hint">${esc(t("cd_hint"))}</p>
-      ${note}${found}${table}`;
+      ${loading}${note}${found}${table}`;
   },
 };
 ADMIN_SECTIONS.push(cardsSection);

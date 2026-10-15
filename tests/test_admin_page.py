@@ -111,6 +111,27 @@ def test_admin_cards_panel_deletes_with_a_confirmation() -> None:
         assert js.count(key + ":") >= 2, f"{key} is missing from one of the languages"
 
 
+def test_admin_patch_picker_is_a_themed_button() -> None:
+    """The native file input is ugly (dark on dark): a label styled like the buttons."""
+    js = (STATIC / "admin.js").read_text(encoding="utf-8")
+
+    assert 'for="patch-file"' in js
+    assert 'class="btn upload-pick"' in js
+    assert 'type="file" accept=".zip" multiple hidden' in js
+    assert js.count("pt_pick:") == 2
+
+
+def test_admin_panels_show_a_loader_while_loading() -> None:
+    """The backup estimate and the patch list arrive asynchronously: a spinner instead
+    of an empty panel while they load."""
+    js = (STATIC / "admin.js").read_text(encoding="utf-8")
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+
+    assert ".loader" in css
+    assert 'class="loader"' in js
+    assert js.count('t("loading")') >= 3  # patch, backup and cards sections
+
+
 def test_admin_page_has_no_update_panel() -> None:
     """2.3 removed the self-update daemon: the page has no update controls any more."""
     html = (STATIC / "admin.html").read_text(encoding="utf-8")

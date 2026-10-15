@@ -79,7 +79,9 @@ header.top .spacer { flex: 1; }
 .theme-btn {
   border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
   padding: 7px 11px; cursor: pointer; font-size: 0.95rem; line-height: 1;
+  color: var(--text);
 }
+.theme-btn svg { display: block; }
 .build-badge {
   color: var(--muted); font-size: 0.78rem; text-decoration: none; white-space: nowrap;
   padding: 6px 10px; border-radius: 999px; border: 1px solid transparent;
@@ -94,6 +96,11 @@ header.top .spacer { flex: 1; }
   animation: spin 0.7s linear infinite; vertical-align: -2px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+.loader {
+  display: inline-block; width: 12px; height: 12px; margin-right: 6px;
+  border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 0.7s linear infinite; vertical-align: -1px;
+}
 .cards.loading, #review-list.loading { opacity: 0.45; transition: opacity 0.15s; }
 .cards { columns: 300px 4; column-gap: 16px; }
 .card {
@@ -190,6 +197,7 @@ img.crop { max-width: 220px; border-radius: 12px; display: block; margin-top: 8p
 .upload-row.error .upload-text { color: var(--bad-text); }
 .upload-row .upload-open { margin-left: 6px; }
 /* admin: maintenance panels */
+main#admin { margin-top: 12px; }
 .panel {
   border: 1px solid var(--border); border-radius: 18px; background: var(--surface);
   padding: 16px; margin-bottom: 14px; box-shadow: 0 12px 28px rgba(69, 44, 21, 0.08);

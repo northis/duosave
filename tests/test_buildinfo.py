@@ -20,8 +20,8 @@ def clear_build_info_cache():
     buildinfo.build_info.cache_clear()
 
 
-def test_version_is_2_8_0() -> None:
-    assert __version__ == "2.8.0"
+def test_version_is_2_9_0() -> None:
+    assert __version__ == "2.9.0"
 
 
 @pytest.mark.parametrize(
@@ -188,6 +188,15 @@ def test_api_version_endpoint(tmp_db: sqlite3.Connection) -> None:
         "version", "commit", "short", "commit_url", "commit_date", "dirty", "repo_url",
     }
     assert data["repo_url"] == "https://github.com/northis/duosave"
+
+
+def test_ui_version_badge_links_to_the_release_tag() -> None:
+    """The version badge opens the release tag; the commit badge keeps the commit page."""
+    static = Path(__file__).resolve().parents[1] / "duosave" / "server" / "static"
+    js = (static / "app.js").read_text(encoding="utf-8")
+
+    assert '"/releases/tag/v" + buildInfo.version' in js
+    assert "buildInfo.commit_url" in js
 
 
 def test_cli_version_flag(capsys: pytest.CaptureFixture[str]) -> None:

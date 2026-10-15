@@ -43,6 +43,17 @@ def test_app_js_sends_files_one_by_one() -> None:
     assert "for (const file of files) await " in js
 
 
+def test_upload_button_uses_a_theme_aware_arrow() -> None:
+    """The ⬆ glyph renders dark-on-dark in the dark theme: an SVG with currentColor follows."""
+    for name in PAGES + ("share.html",):
+        html = (STATIC / name).read_text(encoding="utf-8")
+        start = html.index('id="upload-btn"')
+        button = html[start:html.index("</button>", start)]
+
+        assert "svg" in button, name
+        assert 'stroke="currentColor"' in button, name
+
+
 def test_upload_strings_are_i18n() -> None:
     js = (STATIC / "app.js").read_text(encoding="utf-8")
 

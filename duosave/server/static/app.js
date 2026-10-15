@@ -127,7 +127,8 @@ function renderBuildInfo() {
   if (version) {
     version.textContent = "v" + buildInfo.version;
     version.title = title;
-    if (buildInfo.repo_url) version.href = buildInfo.repo_url;
+    /* the version badge opens the release tag; the commit badge keeps the commit page */
+    if (buildInfo.repo_url) version.href = buildInfo.repo_url + "/releases/tag/v" + buildInfo.version;
   }
   if (commit) {
     if (buildInfo.short) {
