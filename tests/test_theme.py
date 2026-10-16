@@ -97,7 +97,21 @@ def test_boot_screen_uses_the_page_backgrounds() -> None:
     assert f"background: {light}" in style
     assert f"background: {dark}" in style
     assert 'html[data-theme="dark"] #boot' in style
-    assert manifest["background_color"] == light  # the OS splash is the light page colour
+    # The OS splash is drawn by the system, which has no dark variant: it is dark on purpose,
+    # so the launch does not start with a bright flash, and it is the same in both themes.
+    assert manifest["background_color"] == dark
+
+
+def test_boot_screen_shows_on_launch_and_not_on_a_navigation() -> None:
+    """The launch screen belongs to the launch: a page opened inside a running tab (and not the
+    share outcome, which the share sheet opens with the app cold) paints without it."""
+    for name in PAGES:
+        bootstrap = [body for tag, body in inline_blocks(name) if tag == "script" and "duosave_theme" in body][0]
+
+        assert "sessionStorage" in bootstrap
+        assert 'location.pathname === "/share"' in bootstrap
+        assert 'dataset.boot = "skip"' in bootstrap
+    assert 'html[data-boot="skip"] #boot { display: none; }' in boot_style()
 
 
 def test_boot_screen_animates_and_waits_for_less_motion() -> None:

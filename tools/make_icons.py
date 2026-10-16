@@ -28,7 +28,8 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "duosave" / "server" / "static" / "icons"
 
 OWL = "🦉"
-BACKGROUND = "#f6f1e8"  # style.css --bg (light theme): also the manifest's splash colour
+BACKGROUND = "#f6f1e8"  # style.css --bg (light theme): the canvas of the opaque icons only —
+# the manifest's splash colour is the dark --bg, see duosave/server/static/manifest.webmanifest
 RENDER_SIZE = 1024  # the glyph is rasterised once, large, then scaled down (LANCZOS)
 ALPHA_CUTOFF = 8  # pixels fainter than this are antialiasing, not the silhouette
 FONT_CANDIDATES = (

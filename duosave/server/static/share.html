@@ -16,6 +16,13 @@
       document.documentElement.dataset.theme = dark ? "dark" : "light";
       var meta = document.querySelector('meta[name="theme-color"]');
       if (meta) meta.content = dark ? "#16171b" : "#f6f1e8";
+      /* The boot screen belongs to the launch, not to every navigation: skip it once this tab has
+         shown it. /share is always a launch — the share sheet opens it with the app cold. */
+      try {
+        var launch = location.pathname === "/share" || !sessionStorage.getItem("duosave_booted");
+        sessionStorage.setItem("duosave_booted", "1");
+        if (!launch) document.documentElement.dataset.boot = "skip";
+      } catch (err) { /* no session storage: the boot screen shows, the safe side */ }
     })();
   </script>
   <style>
@@ -37,6 +44,7 @@
     html[data-theme="dark"] #boot .boot-bar { background: rgba(255, 255, 255, 0.12); }
     html[data-theme="dark"] #boot .boot-bar span { background: #e5865a; }
     #boot.boot-done { opacity: 0; transition: opacity 0.25s ease-out; pointer-events: none; }
+    html[data-boot="skip"] #boot { display: none; } /* a navigation inside the app: no launch screen */
     @keyframes boot-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
     @keyframes boot-slide { from { left: -40%; } to { left: 100%; } }
     @media (prefers-reduced-motion: reduce) {

@@ -21,7 +21,7 @@ def clear_build_info_cache():
 
 
 def test_version_is_2_9_0() -> None:
-    assert __version__ == "2.13.0"
+    assert __version__ == "2.14.0"
 
 
 @pytest.mark.parametrize(
