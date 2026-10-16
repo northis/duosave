@@ -213,6 +213,10 @@ main#admin { margin-top: 12px; }
   padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px;
   font: inherit; background: var(--surface); color: var(--text); min-width: 240px;
 }
+.panel select {
+  padding: 7px 10px; border: 1px solid var(--border); border-radius: 10px;
+  font: inherit; background: var(--surface); color: var(--text); max-width: 200px;
+}
 .kv {
   display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px;
   font-size: 0.9rem; margin: 0 0 12px;

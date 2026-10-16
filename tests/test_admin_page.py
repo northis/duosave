@@ -111,6 +111,19 @@ def test_admin_cards_panel_deletes_with_a_confirmation() -> None:
         assert js.count(key + ":") >= 2, f"{key} is missing from one of the languages"
 
 
+def test_admin_cards_panel_changes_the_language() -> None:
+    """A language picker in the row: a fix instead of a removal when the label is wrong."""
+    js = (STATIC / "admin.js").read_text(encoding="utf-8")
+
+    assert "cardsSection.changeLanguage" in js
+    assert "cardLanguageOptions" in js
+    assert 'method: "PATCH"' in js
+    assert '"/api/admin/cards/" + cardId' in js
+    assert "report.merged_into" in js
+    for key in ("cd_col_lang", "cd_lang_changed", "cd_lang_merged"):
+        assert js.count(key + ":") >= 2, f"{key} is missing from one of the languages"
+
+
 def test_admin_patch_picker_is_a_themed_button() -> None:
     """The native file input is ugly (dark on dark): a label styled like the buttons."""
     js = (STATIC / "admin.js").read_text(encoding="utf-8")

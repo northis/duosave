@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from .. import backup, cards, config, patch_apply, patchfmt
@@ -193,14 +194,20 @@ def api_patch_discard(patch_id: str, request: Request,
 
 @router.get("/api/admin/cards")
 def api_admin_cards(q: str = "", lang: str = "", limit: int = 20) -> dict:
-    """Card search for the delete panel: rejected cards stay visible here."""
+    """Card search for the maintenance panel: rejected cards stay visible here.
+
+    The response carries the languages the panel offers, so the picker always matches
+    what the endpoint accepts.
+    """
     conn = connect()
     try:
         items, total = search_cards(conn, query=q, lang=lang, limit=max(1, min(limit, 100)),
                                     include_rejected=True)
     finally:
         conn.close()
-    return {"total": total, "items": items}
+    languages = [{"code": code, "name": config.LANGUAGE_NAMES[code]}
+                 for code in (*config.LANGUAGES, "unk")]
+    return {"total": total, "items": items, "languages": languages}
 
 
 @router.delete("/api/admin/cards/{card_id}")
@@ -227,6 +234,41 @@ def api_card_delete(card_id: int, request: Request,
     patch_apply.start_reindex()
     audit("card_delete", who, card_id=card_id, files=len(report["removed"]),
           missing=len(report["missing"]), kept=len(report["kept"]))
+    return report
+
+
+class CardLanguage(BaseModel):
+    language: str
+
+
+@router.patch("/api/admin/cards/{card_id}")
+def api_card_language(card_id: int, payload: CardLanguage, request: Request,
+                      _: None = Depends(require_csrf)) -> dict:
+    """Change a card's language; a pair already owned by another card merges into it."""
+    language = (payload.language or "").strip()
+    allowed = (*config.LANGUAGES, "unk")
+    if language not in allowed:
+        raise AdminError(400, "unknown_language",
+                         f"language must be one of {', '.join(allowed)}")
+    who = actor(request)
+    conn = connect()
+    try:
+        try:
+            with timed("card.language", card=card_id) as info:
+                report = cards.set_language(conn, card_id, language)
+                conn.commit()
+                info["merged"] = report["merged_into"] or "-"
+        except cards.CardNotFound:
+            raise AdminError(404, "not_found", "no such card") from None
+        except sqlite3.OperationalError as exc:
+            conn.rollback()
+            raise AdminError(503, "busy", f"database is busy, retry: {exc}") from exc
+    finally:
+        conn.close()
+    if report["changed"]:
+        patch_apply.start_reindex()
+    audit("card_language", who, card_id=card_id, language=language,
+          merged=report["merged_into"] or "-")
     return report
 
 

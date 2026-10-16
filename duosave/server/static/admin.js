@@ -13,10 +13,13 @@ Object.assign(I18N.ru, {
   cd_delete: "Удалить",
   cd_confirm: "Удалить карточку вместе с её картинками? Действие необратимо.",
   cd_deleted: "Удалено: «{label}» (картинок: {n})",
-  cd_hint: "Удаляет карточку, её источники и исходные картинки (включая кроп Drops): ту же картинку можно загрузить заново и распознать ещё раз.",
+  cd_hint: "Язык меняется прямо в строке; удаление убирает карточку, её источники и исходные картинки (включая кроп Drops) — ту же картинку можно загрузить заново и распознать ещё раз.",
   cd_found: "Найдено карточек: {n}",
   cd_col_card: "Карточка",
   cd_col_app: "Источник",
+  cd_col_lang: "Язык",
+  cd_lang_changed: "Язык изменён: «{label}» → {lang}",
+  cd_lang_merged: "Карточка «{label}» объединена с #{id}",
   bk_db: "Скачать: только БД",
   bk_full: "Скачать: полный",
   bk_hint: "Восстановление — README, раздел «Бэкап и восстановление».",
@@ -73,10 +76,13 @@ Object.assign(I18N.en, {
   cd_delete: "Delete",
   cd_confirm: "Delete the card together with its images? This cannot be undone.",
   cd_deleted: "Deleted “{label}” (images: {n})",
-  cd_hint: "Deletes the card, its sources and the source images (the Drops crop included): the same image can be uploaded and recognized again.",
+  cd_hint: "The language changes right in the row; deleting removes the card, its sources and the source images (the Drops crop included) — the same image can be uploaded and recognized again.",
   cd_found: "Cards found: {n}",
   cd_col_card: "Card",
   cd_col_app: "Source",
+  cd_col_lang: "Language",
+  cd_lang_changed: "Language changed: “{label}” → {lang}",
+  cd_lang_merged: "Card “{label}” merged into #{id}",
   bk_db: "Download: DB only",
   bk_full: "Download: full",
   bk_hint: "Restore instructions — README, “Backup and restore”.",
@@ -521,9 +527,26 @@ const patchSection = {
 ADMIN_SECTIONS.push(patchSection);
 
 /* ---------------------------------- cards --------------------------------- */
+
+/* Options for the language picker of one card row; "unk" is a real target too. */
+function cardLanguageOptions(selected) {
+  const options = cardsSection.languages.map((language) => {
+    const mark = language.code === selected ? " selected" : "";
+    if (language.code === "unk") {
+      return `<option value="unk"${mark}>${esc(t("lang_unknown"))}</option>`;
+    }
+    return `<option value="${esc(language.code)}"${mark}>${esc(language.code.toUpperCase())} — ${esc(language.name)}</option>`;
+  });
+  if (!options.length) {
+    options.push(`<option value="${esc(selected)}" selected>${esc((selected || "").toUpperCase())}</option>`);
+  }
+  return options.join("");
+}
+
 const cardsSection = {
   query: "",
   items: [],
+  languages: [],
   total: 0,
   note: "",
   noteOk: true,
@@ -536,6 +559,7 @@ const cardsSection = {
     try {
       const data = await adminFetch("/api/admin/cards?limit=20&q=" + encodeURIComponent(this.query));
       this.items = data.items || [];
+      this.languages = data.languages || [];
       this.total = data.total || 0;
       this.note = "";
       this.loadedOnce = true;
@@ -593,13 +617,50 @@ const cardsSection = {
     }
   },
 
+  /* Change one card's language; merging into the card that owns the pair drops the row. */
+  async changeLanguage(cardId, language) {
+    const card = this.items.find((item) => item.id === cardId);
+    if (!card || card.saving || card.deleting || language === card.language) return;
+    card.saving = true;
+    card.error = "";
+    this.paintRow(card);
+    try {
+      const report = await adminFetch("/api/admin/cards/" + cardId, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language }),
+      });
+      card.saving = false;
+      if (report.merged_into) {
+        this.items = this.items.filter((item) => item.id !== cardId);
+        this.total = Math.max(0, this.total - 1);
+        this.note = t("cd_lang_merged").replace("{label}", card.original || String(cardId))
+          .replace("{id}", String(report.merged_into));
+      } else {
+        card.language = report.language;
+        this.note = t("cd_lang_changed").replace("{label}", card.original || String(cardId))
+          .replace("{lang}", report.language.toUpperCase());
+      }
+      this.noteOk = true;
+    } catch (err) {
+      card.saving = false;
+      card.error = err.status === 404 ? t("cd_missing") : err.message;
+      if (err.status === 404) this.items = this.items.filter((item) => item.id !== cardId);
+    }
+    this.paint();
+  },
+
   rowMarkup(card) {
     const action = card.deleting
       ? `<span class="muted"><span class="loader"></span>${esc(t("cd_deleting"))}</span>`
       : `<button class="btn bad" onclick="cardsSection.remove(${card.id})">${esc(t("cd_delete"))}</button>`;
+    const picker = card.saving
+      ? `<span class="muted"><span class="loader"></span></span>`
+      : `<select class="lang-select" title="${esc(t("lang_label"))}"
+                 onchange="cardsSection.changeLanguage(${card.id}, this.value)">${cardLanguageOptions(card.language)}</select>`;
     const error = card.error ? `<div class="state-bad">${esc(card.error)}</div>` : "";
     return `<tr id="card-row-${card.id}" class="${card.deleting ? "deleting" : ""}">
-        <td><span class="badge lang">${esc(card.language)}</span></td>
+        <td>${picker}</td>
         <td>${esc(card.original)}<div class="muted">${esc(card.translation)}</div></td>
         <td>${esc(card.app || "")} · ${esc(card.status || "")}</td>
         <td>${action}${error}</td>
@@ -617,7 +678,7 @@ const cardsSection = {
     if (!body) return;
     const rows = this.items.map((card) => this.rowMarkup(card)).join("");
     const table = rows
-      ? `<table class="table"><thead><tr><th></th><th>${esc(t("cd_col_card"))}</th>
+      ? `<table class="table"><thead><tr><th>${esc(t("cd_col_lang"))}</th><th>${esc(t("cd_col_card"))}</th>
            <th>${esc(t("cd_col_app"))}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
       : "";
     const found = this.items.length

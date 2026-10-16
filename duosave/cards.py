@@ -1,10 +1,11 @@
 """Card maintenance that spans the database and the files on disk.
 
-The only operation here is deleting a card: the admin page removes a wrong card together
-with the frames it was recognized from, so a fresh share of the same image is processed
-again instead of answering "duplicate". `sources` and `card_embeddings` cascade from the
-card row; the `files` rows go in the same transaction, then the images, Drops crops and
-recognition caches are removed — and only when no other card still references the frame.
+Deleting a card removes it together with the frames it was recognized from, so a fresh
+share of the same image is processed again instead of answering "duplicate": `sources`
+and `card_embeddings` cascade from the card row; the `files` rows go in the same
+transaction, then the images, Drops crops and recognition caches are removed — and only
+when no other card still references the frame. Changing a card's language re-keys it,
+merging into the card that already owns the pair when there is one.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import sqlite3
 from pathlib import Path
 
 from . import config
+from .db import card_by_key, now
 
 
 class CardNotFound(Exception):
@@ -57,6 +59,47 @@ def delete_card(conn: sqlite3.Connection, card_id: int) -> dict:
         "missing": report["missing"],
         "kept": report["kept"],
     }
+
+
+def set_language(conn: sqlite3.Connection, card_id: int, language: str) -> dict:
+    """Change one card's language, merging into the card that already owns the pair.
+
+    The pair key is (language, original, translation): when another card already has the
+    pair under the target language, this card's frames move there and the emptied row is
+    dropped, so a change never leaves a duplicate behind. The card keeps its status and
+    notes — fixing a language is metadata maintenance, not a review decision.
+    """
+    card = conn.execute(
+        "SELECT language, original, translation FROM cards WHERE id = ?", (card_id,)
+    ).fetchone()
+    if card is None:
+        raise CardNotFound(card_id)
+    report = {
+        "card_id": card_id,
+        "language": language,
+        "original": card["original"],
+        "translation": card["translation"],
+        "merged_into": None,
+        "changed": False,
+    }
+    if card["language"] == language:
+        return report
+    report["changed"] = True
+    target = card_by_key(conn, language, card["original"], card["translation"])
+    if target is not None and int(target["id"]) != card_id:
+        report["merged_into"] = int(target["id"])
+        conn.execute("UPDATE OR IGNORE sources SET card_id = ? WHERE card_id = ?",
+                     (report["merged_into"], card_id))
+        conn.execute("DELETE FROM sources WHERE card_id = ?", (card_id,))
+        conn.execute(
+            "DELETE FROM cards WHERE id = ? AND NOT EXISTS"
+            " (SELECT 1 FROM sources WHERE card_id = ?)",
+            (card_id, card_id),
+        )
+        return report
+    conn.execute("UPDATE cards SET language = ?, updated_at = ? WHERE id = ?",
+                 (language, now(), card_id))
+    return report
 
 
 def supersede_sources(conn: sqlite3.Connection, card_id: int, keep_path: str) -> list[sqlite3.Row]:
