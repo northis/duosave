@@ -97,7 +97,10 @@ document.querySelectorAll(".lang a").forEach((a) =>
 
 /* theme */
 const THEME_COLORS = { light: "#f6f1e8", dark: "#16171b" }; /* style.css --bg, and the manifest theme_color */
-let theme = localStorage.getItem("duosave_theme")
+/* The page's own head script applied the stored (or system) theme before the first paint; it
+   is the source of truth here so the two can never disagree. */
+let theme = document.documentElement.dataset.theme
+  || localStorage.getItem("duosave_theme")
   || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
 function applyTheme() {
   document.documentElement.dataset.theme = theme;
@@ -115,6 +118,17 @@ function bindTheme() {
     applyTheme();
   });
 }
+
+/* The boot screen (the page's own first frame, see the head of every page) goes away with the
+   first render. The watchdog covers a request that never answers: it must not hide the page. */
+const BOOT_MAX_MS = 6000;
+function bootDone() {
+  const boot = document.getElementById("boot");
+  if (!boot) return;
+  boot.classList.add("boot-done");
+  setTimeout(() => boot.remove(), 300); /* after the fade */
+}
+setTimeout(bootDone, BOOT_MAX_MS);
 
 /* version + commit badge in the sticky header (two links: repo and commit) */
 let buildInfo = null;
@@ -364,7 +378,7 @@ async function render(reset) {
     setStatus(t("load_error"), false);
     show(document.getElementById("empty"));
   } finally {
-    if (seq === reqSeq) setBusy(wrap, false);
+    if (seq === reqSeq) { setBusy(wrap, false); bootDone(); }
   }
 }
 
@@ -528,7 +542,7 @@ async function loadReview(reset) {
     setStatus(t("load_error"), false);
     show(document.getElementById("empty"));
   } finally {
-    if (seq === reviewSeq) setBusy(wrap, false);
+    if (seq === reviewSeq) { setBusy(wrap, false); bootDone(); }
   }
 }
 
@@ -782,4 +796,5 @@ function initSharePage() {
   }
   applyI18n();
   renderShare();
+  bootDone(); /* the outcome comes from the URL: there is nothing to wait for */
 }

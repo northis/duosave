@@ -241,6 +241,7 @@ function initAdminPage() {
   loadBuildInfo();
   loadSession();
   ADMIN_SECTIONS.forEach((section) => section.init());
+  bootDone(); /* every panel has painted its loader: the page is readable while it waits */
 }
 
 function fmtSize(bytes) {

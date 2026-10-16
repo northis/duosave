@@ -5,12 +5,56 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f6f1e8">
   <title>Duosave — обслуживание</title>
+  <script>
+    /* Theme before the first paint: the boot screen, the page and the browser chrome follow the
+       stored theme, or the system one while the reader has not picked yet. app.js reads the same
+       attribute back, so the toggle and this script cannot disagree. */
+    (function () {
+      var stored = localStorage.getItem("duosave_theme");
+      var dark = stored ? stored === "dark"
+        : !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.content = dark ? "#16171b" : "#f6f1e8";
+    })();
+  </script>
+  <style>
+    /* Boot screen: the first frame of the page, painted while style.css is still on the wire —
+       before it there is only the OS splash, drawn from the manifest. app.js fades it out once
+       the first page has rendered (bootDone). */
+    html { background: #f6f1e8; }
+    html[data-theme="dark"] { background: #16171b; }
+    #boot { position: fixed; inset: 0; z-index: 60; display: grid; place-content: center;
+      justify-items: center; background: #f6f1e8; color: #20170f;
+      font: 400 0.9rem/1.4 "Segoe UI", "Helvetica Neue", sans-serif; }
+    #boot .boot-owl { font-size: 64px; line-height: 1; animation: boot-pulse 1.4s ease-in-out infinite; }
+    #boot .boot-label { margin-top: 12px; letter-spacing: 0.02em; opacity: 0.7; }
+    #boot .boot-bar { position: relative; width: 120px; height: 4px; margin-top: 14px;
+      border-radius: 999px; background: rgba(84, 59, 37, 0.14); overflow: hidden; }
+    #boot .boot-bar span { position: absolute; top: 0; bottom: 0; left: -40%; width: 40%;
+      border-radius: 999px; background: #d2693c; animation: boot-slide 1.2s ease-in-out infinite; }
+    html[data-theme="dark"] #boot { background: #16171b; color: #ecebe6; }
+    html[data-theme="dark"] #boot .boot-bar { background: rgba(255, 255, 255, 0.12); }
+    html[data-theme="dark"] #boot .boot-bar span { background: #e5865a; }
+    #boot.boot-done { opacity: 0; transition: opacity 0.25s ease-out; pointer-events: none; }
+    @keyframes boot-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+    @keyframes boot-slide { from { left: -40%; } to { left: 100%; } }
+    @media (prefers-reduced-motion: reduce) {
+      #boot .boot-owl, #boot .boot-bar span { animation: none; }
+      #boot .boot-bar span { left: 30%; }
+    }
+  </style>
   <link rel="stylesheet" href="/static/style.css">
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon-180.png">
 </head>
 <body>
+<div id="boot" role="status" aria-live="polite">
+  <div class="boot-owl" aria-hidden="true">🦉</div>
+  <div class="boot-label" data-i18n="loading">Загрузка…</div>
+  <div class="boot-bar" aria-hidden="true"><span></span></div>
+</div>
 <div class="shell">
   <header class="top">
     <h1>🦉 Duosave</h1>

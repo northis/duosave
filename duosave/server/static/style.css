@@ -130,8 +130,12 @@ header.top .spacer { flex: 1; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .card .src a { color: inherit; }
+/* The label must set its own colour: a `button` keeps the user agent's `buttontext`, which
+   follows the operating system and ignores the app theme (black on the dark surface here). */
 .more { display: block; margin: 18px auto; padding: 12px 26px; border-radius: 999px;
-  border: 1px solid var(--border); background: var(--surface); font: inherit; cursor: pointer; }
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font: inherit; cursor: pointer; }
+.more:hover { border-color: var(--accent); color: var(--accent); }
 .empty { text-align: center; color: var(--muted); padding: 40px 0; }
 /* modal */
 .modal-back {
