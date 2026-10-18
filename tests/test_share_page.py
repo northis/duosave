@@ -7,6 +7,7 @@ client depends on, and the redirect contract of the POST fallback whose body is 
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -27,6 +28,37 @@ def test_get_share_serves_the_page(client: TestClient) -> None:
     assert 'id="share"' in response.text
     assert 'href="/"' in response.text
     assert 'href="/review"' in response.text
+
+
+def test_share_actions_wrap_without_overlapping() -> None:
+    """The links are inline by default: their vertical padding then overlaps the next line
+    when the row wraps on a narrow phone. The container is a flex row and `.btn` is a box."""
+    html = (STATIC / "share.html").read_text(encoding="utf-8")
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    actions = re.search(r"\.share-actions\s*\{([^}]*)\}", css)
+    button = re.search(r"\.btn\s*\{([^}]*)\}", css)
+    start = html.index('<div class="share-actions">')
+    block = html[start:html.index("</div>", start)]
+
+    for needle in ('id="share-open-card"', 'href="/review"', 'data-i18n="share_to_search"'):
+        assert needle in block
+    assert actions and "display: flex" in actions.group(1)
+    assert actions and "flex-wrap: wrap" in actions.group(1)
+    assert actions and "gap:" in actions.group(1)
+    assert button and "display: inline-block" in button.group(1)
+    assert button and "text-decoration: none" in button.group(1)
+    assert re.search(r"\.btn\[hidden\]\s*\{[^}]*display:\s*none", css)
+
+
+def test_share_page_offers_upload_only_when_the_worker_is_missing() -> None:
+    """The share target itself uploads the files: the picker is a fallback for an install with
+    no active worker, so the header button stays hidden until `error=sw` reveals it."""
+    html = (STATIC / "share.html").read_text(encoding="utf-8")
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    button = re.search(r'<button[^>]*id="upload-btn"[^>]*>', html, re.S)
+
+    assert button and "hidden" in button.group(0)
+    assert "btn.hidden = false" in js
 
 
 def test_share_page_reads_the_outcome_from_the_url() -> None:

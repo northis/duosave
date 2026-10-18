@@ -96,7 +96,7 @@ document.querySelectorAll(".lang a").forEach((a) =>
   }));
 
 /* theme */
-const THEME_COLORS = { light: "#f6f1e8", dark: "#16171b" }; /* style.css --bg, and the manifest theme_color */
+const THEME_COLORS = { light: "#f6f1e8", dark: "#16171b" }; /* style.css --bg and the meta theme-color */
 /* The page's own head script applied the stored (or system) theme before the first paint; it
    is the source of truth here so the two can never disagree. */
 let theme = document.documentElement.dataset.theme
@@ -792,7 +792,10 @@ function initSharePage() {
     const panel = document.getElementById("upload-panel");
     const btn = document.getElementById("upload-btn");
     if (panel) panel.hidden = false;
-    if (btn) btn.setAttribute("aria-expanded", "true");
+    if (btn) {
+      btn.hidden = false;
+      btn.setAttribute("aria-expanded", "true");
+    }
   }
   applyI18n();
   renderShare();

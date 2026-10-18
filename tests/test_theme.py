@@ -102,6 +102,15 @@ def test_boot_screen_uses_the_page_backgrounds() -> None:
     assert manifest["background_color"] == dark
 
 
+def test_manifest_status_bar_matches_the_dark_splash() -> None:
+    """The OS splash is dark in both themes, so its status bar must be dark too: Android picks
+    the icon colour from theme_color, and a light value gives dark icons on the dark splash."""
+    manifest = json.loads((STATIC / "manifest.webmanifest").read_text(encoding="utf-8"))
+    _, dark = theme_backgrounds()
+
+    assert manifest["theme_color"] == dark
+
+
 def test_boot_screen_shows_on_launch_and_not_on_a_navigation() -> None:
     """The launch screen belongs to the launch: a page opened inside a running tab (and not the
     share outcome, which the share sheet opens with the app cold) paints without it."""

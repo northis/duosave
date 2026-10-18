@@ -90,6 +90,9 @@ header.top .spacer { flex: 1; }
 .build-badge a { color: inherit; text-decoration: none; }
 .build-badge a:hover { text-decoration: underline; }
 .stats-line { color: var(--muted); font-size: 0.9rem; margin: 4px 2px 12px; min-height: 1.3em; }
+/* Share outcome actions: the links are inline by default, so their vertical padding overlaps
+   the next line when the row wraps on a narrow phone; as flex items they keep their boxes. */
+.share-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .stats-line.busy::after {
   content: ""; display: inline-block; width: 11px; height: 11px; margin-left: 8px;
   border: 2px solid var(--accent); border-top-color: transparent; border-radius: 50%;
@@ -164,9 +167,11 @@ header.top .spacer { flex: 1; }
 .review-item .guess .t { color: var(--muted); }
 .review-item .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .btn {
-  padding: 9px 16px; border-radius: 999px; border: 1px solid var(--border);
-  background: var(--surface); font: inherit; cursor: pointer; color: var(--text);
+  display: inline-block; padding: 9px 16px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); font: inherit;
+  cursor: pointer; color: var(--text); text-decoration: none;
 }
+.btn[hidden] { display: none; } /* `display` above would otherwise override the attribute */
 .btn.ok { background: var(--ok-soft); color: var(--ok-text); border-color: transparent; }
 .btn.bad { background: var(--bad-soft); color: var(--bad-text); border-color: transparent; }
 .btn.accent { background: var(--accent); color: #fff; border-color: transparent; }
