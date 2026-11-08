@@ -120,6 +120,19 @@ def cmd_snapshot(args) -> int:
     return 0
 
 
+def cmd_backup(args) -> int:
+    from .backup import run_incremental
+
+    try:
+        result = run_incremental(args.since)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(result["archive"])
+    print(f"files newer than {result['since']}: {result['files']}")
+    return 0
+
+
 def _patch_outbox(arg: str | None) -> Path:
     from . import config
 
@@ -279,6 +292,16 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot_parser = sub.add_parser("snapshot", help="consistent DB snapshot into data/backups")
     snapshot_parser.add_argument("--label", default="manual")
     snapshot_parser.set_defaults(func=cmd_snapshot)
+
+    backup_parser = sub.add_parser(
+        "backup",
+        help="incremental archive into data/backups/incremental: DB + files newer than the cutoff",
+    )
+    backup_parser.add_argument(
+        "--since",
+        help="first run only: a date or ISO datetime (files modified after it, YYYY-MM-DD)",
+    )
+    backup_parser.set_defaults(func=cmd_backup)
 
     patch_parser = sub.add_parser("patch", help="agent-side patch tooling (no database needed)")
     patch_sub = patch_parser.add_subparsers(dest="patch_command", required=True)

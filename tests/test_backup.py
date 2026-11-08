@@ -5,9 +5,12 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import sqlite3
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+import pytest
 
 from duosave import backup, db
 
@@ -23,6 +26,10 @@ INSERT_CARD = (
 def _write(path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
+
+
+def _set_mtime(path, moment: datetime) -> None:
+    os.utime(path, (moment.timestamp(), moment.timestamp()))
 
 
 def _archive(kind: str) -> zipfile.ZipFile:
@@ -155,3 +162,62 @@ def test_estimate(tmp_repo) -> None:
 
     assert backup.estimate("db") == db_size
     assert backup.estimate("full") == db_size + 100
+
+
+def test_parse_moment_accepts_a_date_and_iso() -> None:
+    aware = backup.parse_moment("2026-01-15T10:00:00+03:00")
+
+    assert aware == datetime(2026, 1, 15, 7, tzinfo=timezone.utc)
+    assert backup.parse_moment("2026-01-15T07:00:00Z") == aware
+    assert backup.parse_moment("2026-01-15") == datetime(2026, 1, 15).astimezone(timezone.utc)
+    with pytest.raises(ValueError):
+        backup.parse_moment("15.01.2026")
+
+
+def test_incremental_first_run_needs_since(tmp_repo) -> None:
+    with pytest.raises(ValueError):
+        backup.run_incremental()
+
+
+def test_incremental_archive_has_new_files_and_the_db(tmp_repo) -> None:
+    old = tmp_repo.root / "pictures" / "old.png"
+    new = tmp_repo.root / "screens" / "new.png"
+    _write(old, png_bytes())
+    _write(new, png_bytes(color=(1, 2, 3)))
+    _set_mtime(old, datetime(2025, 12, 31, tzinfo=timezone.utc))
+    _set_mtime(new, datetime(2026, 2, 1, tzinfo=timezone.utc))
+
+    result = backup.run_incremental("2026-01-15T00:00:00+00:00")
+
+    assert result["files"] == 1
+    assert result["since"] == "2026-01-15T00:00:00+00:00"
+    with zipfile.ZipFile(result["archive"]) as zf:
+        assert set(zf.namelist()) == {"data/duosave.db", "screens/new.png",
+                                      "backup-manifest.json"}
+        assert zf.testzip() is None
+        assert zf.getinfo("screens/new.png").compress_type == zipfile.ZIP_STORED
+        assert zf.getinfo("data/duosave.db").compress_type == zipfile.ZIP_DEFLATED
+        assert json.loads(zf.read("backup-manifest.json"))["kind"] == "incremental"
+    state = tmp_repo.data / "backups" / "incremental" / backup.STATE_NAME
+    assert json.loads(state.read_text(encoding="utf-8"))["last_backup"]
+
+
+def test_incremental_second_run_continues_from_the_previous_one(tmp_repo) -> None:
+    now = datetime.now(timezone.utc)
+    first = tmp_repo.root / "pictures" / "a.png"
+    _write(first, png_bytes())
+    _set_mtime(first, now - timedelta(days=1))
+    backup.run_incremental((now - timedelta(days=2)).isoformat())
+
+    second = tmp_repo.root / "pictures" / "b.png"
+    _write(second, png_bytes(color=(9, 9, 9)))
+    _set_mtime(second, now + timedelta(minutes=1))
+
+    result = backup.run_incremental()
+
+    with zipfile.ZipFile(result["archive"]) as zf:
+        names = zf.namelist()
+    assert "pictures/b.png" in names
+    assert "pictures/a.png" not in names
+    with pytest.raises(ValueError):
+        backup.run_incremental((now - timedelta(days=2)).isoformat())

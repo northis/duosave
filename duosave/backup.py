@@ -8,7 +8,7 @@ import json
 import sqlite3
 import time
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -27,6 +27,9 @@ INCLUDE: dict[str, list[str]] = {
 
 DB_ARCHIVE_PATH = "data/duosave.db"
 MANIFEST_NAME = "backup-manifest.json"
+# Incremental archives live next to the DB snapshots, with the cutoff of the last run.
+INCREMENTAL_SUBDIR = "incremental"
+STATE_NAME = "backup-state.json"
 COPY_CHUNK = 1024 * 1024
 ESTIMATE_TTL = 60
 _counts_tables = ("cards", "sources", "files", "patches")
@@ -155,7 +158,7 @@ def _counts(snapshot_path: Path) -> dict[str, int]:
         conn.close()
 
 
-def manifest(kind: Kind, entries: list[dict], db_info: dict) -> dict:
+def manifest(kind: str, entries: list[dict], db_info: dict) -> dict:
     """backup-manifest.json body (contracts/admin-api.md)."""
     info = build_info()
     return {
@@ -176,6 +179,16 @@ def manifest(kind: Kind, entries: list[dict], db_info: dict) -> dict:
 
 def iter_backup_zip(kind: Kind) -> Iterator[bytes]:
     """Stream the archive: DB snapshot first, manifest last, temp snapshot always removed."""
+    return _iter_archive(kind, iter_files(kind))
+
+
+def iter_incremental_zip(files: Iterable[tuple[str, Path]]) -> Iterator[bytes]:
+    """The same archive for a given (archive path, disk path) list, without the cutoff check."""
+    return _iter_archive("incremental", files)
+
+
+def _iter_archive(kind: str, files: Iterable[tuple[str, Path]]) -> Iterator[bytes]:
+    """Stream one archive: DB snapshot first, manifest last, temp snapshot always removed."""
     config.BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
     tmp_dir = config.BACKUPS_DIR / "tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -197,7 +210,7 @@ def iter_backup_zip(kind: Kind) -> Iterator[bytes]:
                 "sha256": db_sha,
                 "counts": _counts(snapshot_path),
             }
-            for arcname, path in iter_files(kind):
+            for arcname, path in files:
                 sha256, size = yield from _stream_file(
                     zf, sink, arcname, path, zipfile.ZIP_STORED
                 )
@@ -231,6 +244,88 @@ def estimate(kind: Kind) -> int:
     return size
 
 
-def backup_filename(kind: Kind, now: datetime | None = None, short: str | None = None) -> str:
+def backup_filename(kind: str, now: datetime | None = None, short: str | None = None) -> str:
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d-%H%M%S")
     return f"duosave-backup-{kind}-{stamp}-{short or 'nocommit'}.zip"
+
+
+def archive_dir() -> Path:
+    """Where incremental archives go; read at call time so tests can point it elsewhere."""
+    return config.BACKUPS_DIR / INCREMENTAL_SUBDIR
+
+
+def parse_moment(value: str) -> datetime:
+    """A date or ISO datetime for --since: a bare date is local midnight, the result is UTC."""
+    try:
+        moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"--since must be a date or an ISO datetime, got {value!r}") from exc
+    if moment.tzinfo is None:
+        moment = moment.astimezone()
+    return moment.astimezone(timezone.utc)
+
+
+def load_state(path: Path) -> datetime | None:
+    """Cutoff of the previous run; a missing or unreadable state means the next run is first."""
+    try:
+        return datetime.fromisoformat(json.loads(path.read_text(encoding="utf-8"))["last_backup"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def save_state(path: Path, moment: datetime) -> None:
+    """Atomic: a state written before its archive exists would lose files for good."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.part")
+    body = json.dumps({"last_backup": moment.astimezone(timezone.utc).isoformat()}, indent=2)
+    temporary.write_text(body + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def files_since(cutoff: datetime) -> list[tuple[str, Path]]:
+    """Files of the full-backup set changed after the cutoff (the DB is added separately)."""
+    cutoff_ns = int(cutoff.timestamp() * 1_000_000_000)
+    selected: list[tuple[str, Path]] = []
+    for name, path in iter_files("full"):
+        try:
+            if path.stat().st_mtime_ns > cutoff_ns:
+                selected.append((name, path))
+        except OSError:  # deleted between the scan and the stat: the next run decides
+            continue
+    return selected
+
+
+def run_incremental(since: str | None = None, now: datetime | None = None) -> dict:
+    """Write one archive (DB + newer files) into data/backups/incremental and advance the state.
+
+    The first run needs --since; later runs continue from the moment the previous run
+    started, so a file added during a backup is picked up by the next one.
+    """
+    started = now or datetime.now(timezone.utc)
+    directory = archive_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    state_path = directory / STATE_NAME
+    last = load_state(state_path)
+    if last is None:
+        if not since:
+            raise ValueError("the first incremental backup needs --since YYYY-MM-DD")
+        cutoff = parse_moment(since)
+    elif since:
+        raise ValueError("a previous backup exists; --since is only used for the first backup")
+    else:
+        cutoff = last
+
+    files = files_since(cutoff)
+    archive = _unique(directory / backup_filename("incremental", started,
+                                                  build_info().get("short")))
+    temporary = archive.with_name(f".{archive.name}.part")
+    try:
+        with temporary.open("wb") as target:
+            for chunk in iter_incremental_zip(files):
+                target.write(chunk)
+        temporary.replace(archive)
+    finally:
+        temporary.unlink(missing_ok=True)
+    save_state(state_path, started)
+    return {"archive": str(archive), "files": len(files), "since": cutoff.isoformat()}
+
