@@ -221,3 +221,29 @@ def test_incremental_second_run_continues_from_the_previous_one(tmp_repo) -> Non
     assert "pictures/a.png" not in names
     with pytest.raises(ValueError):
         backup.run_incremental((now - timedelta(days=2)).isoformat())
+
+
+def test_incremental_skips_and_keeps_the_cutoff_when_nothing_changed(tmp_repo) -> None:
+    folder = tmp_repo.data / "backups" / "incremental"
+    state = folder / backup.STATE_NAME
+    # Everything in the repository is older than the run, as it is after a quiet day:
+    # the state time has a second of slack, so fresh timestamps would count as changes.
+    old = datetime.now(timezone.utc) - timedelta(hours=1)
+    for path in (tmp_repo.data / "duosave.db", tmp_repo.data / "duosave.db-wal"):
+        if path.exists():
+            _set_mtime(path, old)
+
+    result = backup.run_incremental((old - timedelta(hours=1)).isoformat())
+
+    assert result["skipped"] is False  # the DB alone was written after the cutoff
+    assert result["files"] == 0
+    cutoff = state.read_text(encoding="utf-8")
+    archives = sorted(folder.glob("*.zip"))
+    assert len(archives) == 1
+
+    skipped = backup.run_incremental()
+
+    assert skipped["skipped"] is True
+    assert skipped["archive"] is None
+    assert state.read_text(encoding="utf-8") == cutoff
+    assert sorted(folder.glob("*.zip")) == archives

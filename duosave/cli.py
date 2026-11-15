@@ -128,6 +128,9 @@ def cmd_backup(args) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    if result["skipped"]:
+        print(f"nothing changed since {result['since']}; no archive")
+        return 0
     print(result["archive"])
     print(f"files newer than {result['since']}: {result['files']}")
     return 0

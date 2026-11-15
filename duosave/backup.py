@@ -295,13 +295,31 @@ def files_since(cutoff: datetime) -> list[tuple[str, Path]]:
     return selected
 
 
+def db_changed_since(cutoff: datetime) -> bool:
+    """The DB or its WAL was written after the cutoff, so the archive needs a fresh copy."""
+    cutoff_ns = int(cutoff.timestamp() * 1_000_000_000)
+    for path in (db.DB_PATH, db.DB_PATH.with_name(f"{db.DB_PATH.name}-wal")):
+        try:
+            if path.stat().st_mtime_ns > cutoff_ns:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def run_incremental(since: str | None = None, now: datetime | None = None) -> dict:
     """Write one archive (DB + newer files) into data/backups/incremental and advance the state.
+
+    Nothing changed since the cutoff - neither a file nor the DB - means no archive and no
+    new cutoff: the state must not advance past an archive that does not exist, or the
+    changes in between would never be backed up.
 
     The first run needs --since; later runs continue from the moment the previous run
     started, so a file added during a backup is picked up by the next one.
     """
-    started = now or datetime.now(timezone.utc)
+    # Whole seconds: the state time is a watermark with a little slack, so a file the
+    # filesystem timestamps a few milliseconds "before" the run start is not missed.
+    started = (now or datetime.now(timezone.utc)).replace(microsecond=0)
     directory = archive_dir()
     directory.mkdir(parents=True, exist_ok=True)
     state_path = directory / STATE_NAME
@@ -316,6 +334,9 @@ def run_incremental(since: str | None = None, now: datetime | None = None) -> di
         cutoff = last
 
     files = files_since(cutoff)
+    if not files and not db_changed_since(cutoff):
+        return {"archive": None, "files": 0, "since": cutoff.isoformat(), "skipped": True}
+
     archive = _unique(directory / backup_filename("incremental", started,
                                                   build_info().get("short")))
     temporary = archive.with_name(f".{archive.name}.part")
@@ -327,5 +348,6 @@ def run_incremental(since: str | None = None, now: datetime | None = None) -> di
     finally:
         temporary.unlink(missing_ok=True)
     save_state(state_path, started)
-    return {"archive": str(archive), "files": len(files), "since": cutoff.isoformat()}
+    return {"archive": str(archive), "files": len(files), "since": cutoff.isoformat(),
+            "skipped": False}
 
